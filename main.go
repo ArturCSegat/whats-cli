@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -26,9 +27,10 @@ type chat struct {
 }
 
 type message struct {
+	Author string `json:"author"`
 	Body   string `json:"body"`
 	Type   string `json:"type"`
-	FromMe bool   `json:"fromMe"`
+	Timestamp time.Time `json:"timestamp"`
 }
 
 type model struct {
@@ -112,7 +114,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		switch msg.String() {
 
-		case "ctrl+c", "q":
+		case "ctrl+c":
 			return m, tea.Quit
 
 		case "up":
@@ -195,13 +197,11 @@ func (m model) View() string {
 		var b strings.Builder
 		b.WriteString("Messages (Esc to go back, Enter to send):\n\n")
 		for _, msg := range m.messages {
-			sender := "them"
-			if msg.FromMe {
-				sender = "you"
-			}
-			b.WriteString(fmt.Sprintf("[%s] %s\n", sender, msg.Body))
+			sender := msg.Author
+			ts := msg.Timestamp.Local().Format("15:04")	// normalize timezone to the system's time and then format it to 24hr format
+			b.WriteString(fmt.Sprintf("[%s] <%s>: %s\n", ts, sender, msg.Body))	// [TI:ME] <Author>: Message
 		}
-		b.WriteString("\nType message: " + m.input)
+		b.WriteString("\nMessage: " + m.input)
 		return b.String()
 
 	default:
