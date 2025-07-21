@@ -27,7 +27,8 @@ type chat struct {
 }
 
 type message struct {
-	Author string `json:"author"`
+	From string `json:"from"`
+	GroupFrom string `json:"group_member_from"`
 	Body   string `json:"body"`
 	Type   string `json:"type"`
 	Timestamp time.Time `json:"timestamp"`
@@ -186,9 +187,9 @@ func (m model) View() string {
 				name = chat.ID
 			}
 			if i == m.selected {
-				b.WriteString(selectedStyle.Render(fmt.Sprintf("> %s\n", name)))
+				b.WriteString(fmt.Sprintf("> %s\n", selectedStyle.Render(name)))
 			} else {
-				b.WriteString(unselectedStyle.Render(fmt.Sprintf("  %s\n", name)))
+				b.WriteString(fmt.Sprintf("%s\n", unselectedStyle.Render(name)))
 			}
 		}
 		return b.String()
@@ -197,7 +198,13 @@ func (m model) View() string {
 		var b strings.Builder
 		b.WriteString("Messages (Esc to go back, Enter to send):\n\n")
 		for _, msg := range m.messages {
-			sender := msg.Author
+			chat_id := m.chats[m.selected].ID
+			sender := ""
+			if strings.Contains(chat_id, "@g.us") {
+				sender = msg.GroupFrom;
+			} else {
+				sender = msg.From;
+			}
 			ts := msg.Timestamp.Local().Format("15:04")	// normalize timezone to the system's time and then format it to 24hr format
 			b.WriteString(fmt.Sprintf("[%s] <%s>: %s\n", ts, sender, msg.Body))	// [TI:ME] <Author>: Message
 		}
