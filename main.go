@@ -181,6 +181,14 @@ func (m model) findMessageByID(msgID string) string {
 	return ""
 }
 
+func setTerminalTitle(title string) {
+	if runtime.GOOS == "windows" {
+		_ = exec.Command("cmd", "/c", "title "+title).Run()
+	} else {
+		fmt.Printf("\033]0;%s\007", title)
+	}
+}
+
 // wrapText wraps text to fit within the specified width, preserving words
 func wrapText(text string, width int) []string {
 	if width <= 0 {
@@ -317,6 +325,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.inInput = false
 				} else {
 					m.view = "chats"
+					setTerminalTitle("Whats-CLI")
 				}
 			}
 		default:
@@ -336,6 +345,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case chatsMsg:
 		m.chats = msg
 		m.view = "chats"
+		setTerminalTitle("Whats-CLI")
 	case messagesMsg:
 		m.messages = msg
 		m.inInput = true
@@ -343,6 +353,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Clear reply highlights and replying state when messages are refreshed
 		m.replyHighlights = make(map[int]bool)
 		m.replyingToMsg = -1
+		if len(m.chats) > m.selectedChat {
+			selectedChat := m.chats[m.selectedChat]
+			if strings.Contains(selectedChat.ID, "@g.us") {
+				// Group chat
+				chatTitle := selectedChat.Name
+				if chatTitle == "" {
+					chatTitle = selectedChat.ID
+				}
+				setTerminalTitle("Whats-CLI: " + chatTitle)
+			} else if len(msg) > 0 {
+				// Private chat — get the 'From' field of first non-self message
+				for _, message := range msg {
+					if !message.FromMe {
+						displayName := selectedChat.Name
+						if displayName == "" {
+							displayName = selectedChat.ID
+						}
+						setTerminalTitle(fmt.Sprintf("Whats-CLI: %s (%s)", displayName, message.From))
+						break
+					}
+				}
+			}
+		}
 	case errMsg:
 		m.err = msg
 		m.view = "error"
@@ -358,7 +391,7 @@ func (m model) View() string {
 		return fmt.Sprintf("Error: %v", m.err)
 	case "chats":
 		var b strings.Builder
-		b.WriteString("Chats (↑ ↓ to enter select mode, Enter to open, q to quit):\n\n")
+		b.WriteString("Chats (↑ ↓ to navigate, Enter to open, q to quit):\n\n")
 
 		// Calculate available height for chats (total height - header - padding)
 		availableHeight := m.height - 3 // 1 for header, 1 for empty line, 1 for padding
@@ -402,7 +435,6 @@ func (m model) View() string {
 	case "messages":
 		var b strings.Builder
 
-		// Fixed topbar - full width
 		var topbarText string
 		if !m.inInput {
 			if m.selectedMsg >= 0 && m.selectedMsg < len(m.messages) {
@@ -426,7 +458,7 @@ func (m model) View() string {
 			}
 		}
 
-		// Truncate topbar text if it exceeds terminal width
+		// shorten topbar text if it exceeds terminal width
 		topbarTextLength := utf8.RuneCountInString(topbarText)
 		if topbarTextLength > m.width {
 			if m.width > 3 {
