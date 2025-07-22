@@ -397,6 +397,20 @@ func (m model) calculateMessageLines() []string {
 						// Style the reply indicator without the trailing space
 						styledReplyIndicator := replyHighlight.Render(replyIndicatorText) + " "
 
+						// Handle media in the reply indicator
+						if strings.Contains(replyIndicatorText, "[MEDIA]") {
+							// Split the reply indicator to style media separately
+							parts := strings.Split(replyIndicatorText, "[MEDIA]")
+							var styledParts []string
+							for i, part := range parts {
+								if i > 0 {
+									styledParts = append(styledParts, hyperlink.Render("[MEDIA]"))
+								}
+								styledParts = append(styledParts, replyHighlight.Render(part))
+							}
+							styledReplyIndicator = strings.Join(styledParts, "") + " "
+						}
+
 						// Handle media and self styling for the rest
 						if strings.HasPrefix(rest, "[MEDIA]") {
 							mediaLabel := "[MEDIA]"
@@ -617,27 +631,31 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					// Clear input buffer immediately
 					m.input = ""
 
+					// Capture reply ID if we're in reply mode
+					var replyToID string
 					if m.replyingToMsg != -1 {
-						return m, sendMedia(
-							m.chats[m.selectedChat].ID,
-							mediaPath,
-							caption,
-							m.messages[m.replyingToMsg].MsgID,
-						)
-					} else {
-						return m, sendMedia(
-							m.chats[m.selectedChat].ID,
-							mediaPath,
-							caption,
-							"",
-						)
+						replyToID = m.messages[m.replyingToMsg].MsgID
+						// Clear reply state
+						m.replyHighlights = make(map[int]bool)
+						m.replyingToMsg = -1
 					}
+
+					// Reset scroll to show latest messages
+					m.scrollOffset = 0
+
+					return m, sendMedia(
+						m.chats[m.selectedChat].ID,
+						mediaPath,
+						caption,
+						replyToID,
+					)
 				}
 
 				// Check if we're replying to a message
 				if m.replyingToMsg != -1 && m.replyingToMsg < len(m.messages) {
 					cmd := sendReply(m.chats[m.selectedChat].ID, m.input, m.messages[m.replyingToMsg].MsgID)
 					m.input = ""
+					m.replyHighlights = make(map[int]bool)
 					m.replyingToMsg = -1 // Clear reply state after sending
 					m.scrollOffset = 0   // Reset scroll to show latest messages
 					return m, cmd
