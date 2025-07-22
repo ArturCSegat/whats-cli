@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -29,6 +31,7 @@ var (
 	topbarStyle     = lipgloss.NewStyle().Background(lipgloss.Color("8")).Foreground(lipgloss.Color("15")).Bold(true)
 	bottombarStyle  = lipgloss.NewStyle().Background(lipgloss.Color("8")).Foreground(lipgloss.Color("15"))
 	replyHighlight  = lipgloss.NewStyle().Background(lipgloss.Color("#FFFFFF")).Foreground(lipgloss.Color("#000000"))
+	errorBarStyle   = lipgloss.NewStyle().Background(lipgloss.Color("#FF0000")).Foreground(lipgloss.Color("#FFFFFF"))
 )
 
 type chat struct {
@@ -62,6 +65,8 @@ type model struct {
 	replyHighlights map[int]bool // tracks which messages have reply highlight
 	replyingToMsg   int          // index of message being replied to (-1 if not replying)
 	scrollOffset    int          // for scrolling through messages in select mode
+	flashMsg        string       // message to flash in bottom bar
+	flashCount      int          // counter for flash animation
 }
 
 func initialModel() model {
@@ -74,6 +79,8 @@ func initialModel() model {
 		replyHighlights: make(map[int]bool),
 		replyingToMsg:   -1,
 		scrollOffset:    0,
+		flashMsg:        "",
+		flashCount:      0,
 	}
 }
 
@@ -83,7 +90,13 @@ type chatsMsg []chat
 
 type messagesMsg []message
 
-func (m model) Init() tea.Cmd { return getChats }
+type flashMsg string
+
+type flashTickMsg struct{}
+
+func (m model) Init() tea.Cmd {
+	return tea.Batch(getChats, flashTick())
+}
 
 func getChats() tea.Msg {
 	res, err := http.Get(fmt.Sprintf("%s/client/1/chat", baseURL))
@@ -150,6 +163,71 @@ func sendReply(chatId, text, responseToId string) tea.Cmd {
 		res.Body.Close()
 		return getMessages(chatId)()
 	}
+}
+
+func sendMedia(chatId, mediaPath, caption, responseToId string) tea.Cmd {
+	return func() tea.Msg {
+		// Check if file exists
+		if _, err := os.Stat(mediaPath); os.IsNotExist(err) {
+			return flashMsg("File not found!")
+		}
+
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+
+		// Add message field if caption exists
+		if caption != "" {
+			writer.WriteField("message", caption)
+		}
+
+		// Add media file
+		file, err := os.Open(mediaPath)
+		if err != nil {
+			return errMsg(err)
+		}
+		defer file.Close()
+
+		part, err := writer.CreateFormFile("media", filepath.Base(mediaPath))
+		if err != nil {
+			return errMsg(err)
+		}
+		_, err = io.Copy(part, file)
+		if err != nil {
+			return errMsg(err)
+		}
+
+		// Add response_to_id if present
+		if responseToId != "" {
+			writer.WriteField("response_to_id", responseToId)
+		}
+
+		writer.Close()
+
+		url := fmt.Sprintf("%s/client/1/chat/%s/send", baseURL, chatId)
+		req, err := http.NewRequest("POST", url, body)
+		if err != nil {
+			return errMsg(err)
+		}
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return errMsg(err)
+		}
+		defer res.Body.Close()
+
+		if res.StatusCode >= 400 {
+			return errMsg(fmt.Errorf("server error: %d", res.StatusCode))
+		}
+
+		return getMessages(chatId)()
+	}
+}
+
+func flashTick() tea.Cmd {
+	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
+		return flashTickMsg{}
+	})
 }
 
 func openURL(url string) {
@@ -392,7 +470,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+	case flashTickMsg:
+		if m.flashCount > 0 {
+			m.flashCount--
+			if m.flashCount == 0 {
+				m.flashMsg = ""
+			}
+			return m, flashTick()
+		}
+		return m, nil
 	case tea.KeyMsg:
+		// Clear flash on any key press
+		if m.flashCount > 0 {
+			m.flashCount = 0
+			m.flashMsg = ""
+		}
+
 		key := msg.String()
 		switch key {
 		case "ctrl+c":
@@ -508,6 +601,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			} else if m.view == "messages" && m.inInput {
+				// Check for media upload syntax
+				if strings.HasPrefix(m.input, "media:\"") {
+					parts := strings.SplitN(m.input[len("media:\""):], "\"", 2)
+					if len(parts) < 2 {
+						return m, nil
+					}
+
+					mediaPath := parts[0]
+					caption := ""
+					if len(parts) > 1 {
+						caption = strings.TrimSpace(parts[1])
+					}
+
+					// Clear input buffer immediately
+					m.input = ""
+
+					if m.replyingToMsg != -1 {
+						return m, sendMedia(
+							m.chats[m.selectedChat].ID,
+							mediaPath,
+							caption,
+							m.messages[m.replyingToMsg].MsgID,
+						)
+					} else {
+						return m, sendMedia(
+							m.chats[m.selectedChat].ID,
+							mediaPath,
+							caption,
+							"",
+						)
+					}
+				}
+
 				// Check if we're replying to a message
 				if m.replyingToMsg != -1 && m.replyingToMsg < len(m.messages) {
 					cmd := sendReply(m.chats[m.selectedChat].ID, m.input, m.messages[m.replyingToMsg].MsgID)
@@ -630,6 +756,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case errMsg:
 		m.err = msg
 		m.view = "error"
+	case flashMsg:
+		m.flashMsg = string(msg)
+		m.flashCount = 6 // 3 flashes (on/off cycles)
+		return m, flashTick()
 	}
 	return m, nil
 }
@@ -781,9 +911,22 @@ func (m model) View() string {
 		}
 
 		// Fixed bottom input bar - full width
-		inputText := " Message: " + m.input
-		bottombarPadding := strings.Repeat(" ", max(0, m.width-len(inputText)))
-		bottombar := bottombarStyle.Width(m.width).Render(inputText + bottombarPadding)
+		var bottombar string
+		if m.flashCount > 0 {
+			// Alternate between error and normal style for flashing effect
+			if m.flashCount%2 == 1 {
+				bottombar = errorBarStyle.Width(m.width).Render(" " + m.flashMsg)
+			} else {
+				bottombar = bottombarStyle.Width(m.width).Render(" " + m.flashMsg)
+			}
+		} else {
+			inputText := " Message: " + m.input
+			if m.flashMsg != "" {
+				inputText = " " + m.flashMsg
+			}
+			bottombarPadding := strings.Repeat(" ", max(0, m.width-utf8.RuneCountInString(inputText)))
+			bottombar = bottombarStyle.Width(m.width).Render(inputText + bottombarPadding)
+		}
 		b.WriteString(bottombar)
 
 		return b.String()
