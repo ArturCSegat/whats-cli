@@ -61,6 +61,7 @@ type model struct {
 	height          int
 	replyHighlights map[int]bool // tracks which messages have reply highlight
 	replyingToMsg   int          // index of message being replied to (-1 if not replying)
+	scrollOffset    int          // for scrolling through messages in select mode
 }
 
 func initialModel() model {
@@ -72,6 +73,7 @@ func initialModel() model {
 		height:          height,
 		replyHighlights: make(map[int]bool),
 		replyingToMsg:   -1,
+		scrollOffset:    0,
 	}
 }
 
@@ -181,6 +183,16 @@ func (m model) findMessageByID(msgID string) string {
 	return ""
 }
 
+// findMessageIndexByID finds the index of a message by its ID
+func (m model) findMessageIndexByID(msgID string) int {
+	for i, msg := range m.messages {
+		if msg.MsgID == msgID {
+			return i
+		}
+	}
+	return -1
+}
+
 func setTerminalTitle(title string) {
 	if runtime.GOOS == "windows" {
 		_ = exec.Command("cmd", "/c", "title "+title).Run()
@@ -229,6 +241,152 @@ func wrapText(text string, width int) []string {
 	return lines
 }
 
+// calculateMessageLines calculates all message lines for proper scrolling
+func (m model) calculateMessageLines() []string {
+	var messageLines []string
+	for i, msg := range m.messages {
+		var linePrefix string
+		if !m.inInput {
+			if i == m.selectedMsg {
+				linePrefix = "> "
+			} else {
+				linePrefix = "  "
+			}
+		}
+
+		ts := msg.Timestamp.Local().Format("15:04")
+		sender := msg.From
+		if strings.Contains(m.chats[m.selectedChat].ID, "@g.us") {
+			sender = msg.GroupFrom
+		}
+
+		body := msg.Body
+		msgPrefix := "[" + ts + "] <" + sender + ">: "
+
+		// Calculate the full prefix length (line prefix + message prefix)
+		fullPrefixLength := utf8.RuneCountInString(linePrefix + msgPrefix)
+
+		// Handle reply indicator
+		var replyPrefix string
+		if msg.ResponseToID != "" {
+			// Find the original message body (now includes media indicator)
+			originalBody := m.findMessageByID(msg.ResponseToID)
+			// Truncate original body if too long (adjust as needed)
+			if len(originalBody) > 30 {
+				originalBody = originalBody[:27] + "..."
+			}
+			replyPrefix = fmt.Sprintf("[REPLY: %s] ", originalBody)
+		}
+
+		// Handle media indicator
+		var mediaPrefix string
+		if msg.HasMedia {
+			mediaPrefix = "[MEDIA] "
+		}
+
+		// Combine all prefixes with the body
+		combinedPrefix := replyPrefix + mediaPrefix
+		fullBody := combinedPrefix + body
+
+		// Calculate available width for message content
+		availableWidth := m.width - fullPrefixLength
+
+		// Wrap the message body BEFORE applying styling
+		wrappedLines := wrapText(fullBody, availableWidth)
+
+		// Check if this message has reply highlight or is being replied to
+		hasReplyHighlight := m.replyHighlights[i] || (m.replyingToMsg == i)
+
+		// Apply styling to msgPrefix if it's from me (unless reply highlighted)
+		styledMsgPrefix := msgPrefix
+		if !hasReplyHighlight && msg.FromMe {
+			styledMsgPrefix = selfPrefix.Render(msgPrefix)
+		}
+
+		if len(wrappedLines) > 0 {
+			firstLine := wrappedLines[0]
+
+			// Apply styling to the first line content (unless reply highlighted)
+			if !hasReplyHighlight {
+				// Handle reply indicator styling
+				if strings.HasPrefix(firstLine, "[REPLY:") {
+					// Find the end of the reply indicator by looking for the last "] "
+					replyEndIdx := strings.LastIndex(firstLine, "] ")
+					if replyEndIdx != -1 {
+						replyIndicatorText := firstLine[:replyEndIdx+1] // Include "]" but not the space
+						rest := firstLine[replyEndIdx+2:]               // Skip "] "
+
+						// Style the reply indicator without the trailing space
+						styledReplyIndicator := replyHighlight.Render(replyIndicatorText) + " "
+
+						// Handle media and self styling for the rest
+						if strings.HasPrefix(rest, "[MEDIA]") {
+							mediaLabel := "[MEDIA]"
+							afterMedia := strings.TrimPrefix(rest, mediaLabel)
+							if msg.FromMe {
+								firstLine = styledReplyIndicator + hyperlink.Render(mediaLabel) + selfBody.Render(afterMedia)
+							} else {
+								firstLine = styledReplyIndicator + hyperlink.Render(mediaLabel) + afterMedia
+							}
+						} else if msg.FromMe {
+							firstLine = styledReplyIndicator + selfBody.Render(rest)
+						} else {
+							firstLine = styledReplyIndicator + rest
+						}
+					}
+				} else if strings.HasPrefix(firstLine, "[MEDIA]") {
+					// Handle media without reply
+					mediaLabel := "[MEDIA]"
+					rest := strings.TrimPrefix(firstLine, mediaLabel)
+					if msg.FromMe {
+						firstLine = hyperlink.Render(mediaLabel) + selfBody.Render(rest)
+					} else {
+						firstLine = hyperlink.Render(mediaLabel) + rest
+					}
+				} else if msg.FromMe {
+					// For self messages without media or reply, apply self styling
+					firstLine = selfBody.Render(firstLine)
+				}
+			}
+
+			// Build the complete first line
+			completeLine := fmt.Sprintf("%s%s%s", linePrefix, styledMsgPrefix, firstLine)
+
+			// Apply reply highlight to the entire line if needed
+			if hasReplyHighlight {
+				// Pad the line to full width and apply highlight
+				padding := strings.Repeat(" ", max(0, m.width-utf8.RuneCountInString(completeLine)))
+				completeLine = replyHighlight.Width(m.width).Render(completeLine + padding)
+			}
+
+			messageLines = append(messageLines, completeLine)
+
+			// Print continuation lines with padding and consistent styling
+			padding := strings.Repeat(" ", fullPrefixLength)
+			for j := 1; j < len(wrappedLines); j++ {
+				continuationLine := wrappedLines[j]
+
+				// Apply consistent styling to continuation lines (unless reply highlighted)
+				if !hasReplyHighlight && msg.FromMe {
+					continuationLine = selfBody.Render(continuationLine)
+				}
+
+				// Build complete continuation line
+				completeContLine := fmt.Sprintf("%s%s", padding, continuationLine)
+
+				// Apply reply highlight to continuation lines if needed
+				if hasReplyHighlight {
+					linePadding := strings.Repeat(" ", max(0, m.width-utf8.RuneCountInString(completeContLine)))
+					completeContLine = replyHighlight.Width(m.width).Render(completeContLine + linePadding)
+				}
+
+				messageLines = append(messageLines, completeContLine)
+			}
+		}
+	}
+	return messageLines
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -246,10 +404,39 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			} else if m.view == "messages" {
 				if m.inInput {
+					// Entering select mode
 					m.inInput = false
-					m.selectedMsg = len(m.messages) - 1
+
+					// If we're in reply mode, return to the message selected for reply
+					if m.replyingToMsg != -1 {
+						m.selectedMsg = m.replyingToMsg
+						// Keep the current scroll offset when returning to reply message
+					} else {
+						// Not in reply mode - start from the last message
+						m.selectedMsg = len(m.messages) - 1
+
+						// Calculate available height and set scroll offset to show bottom messages
+						availableHeight := m.height - 2 // 1 for topbar, 1 for bottombar
+						if availableHeight < 1 {
+							availableHeight = 1
+						}
+
+						// Get all message lines to calculate proper scroll offset
+						messageLines := m.calculateMessageLines()
+
+						// Set scroll offset to show the last messages (like input mode does)
+						if len(messageLines) > availableHeight {
+							m.scrollOffset = len(messageLines) - availableHeight
+						} else {
+							m.scrollOffset = 0
+						}
+					}
 				} else if m.selectedMsg > 0 {
 					m.selectedMsg--
+					// Adjust scroll offset if needed to keep selected message visible
+					if m.selectedMsg < m.scrollOffset {
+						m.scrollOffset = m.selectedMsg
+					}
 				}
 			}
 		case "down":
@@ -261,8 +448,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if !m.inInput {
 					if m.selectedMsg < len(m.messages)-1 {
 						m.selectedMsg++
+						// Adjust scroll offset if message goes off screen
+						availableHeight := m.height - 2
+						if m.selectedMsg >= m.scrollOffset+availableHeight {
+							m.scrollOffset = m.selectedMsg - availableHeight + 1
+						}
 					} else {
+						// Return to input mode
 						m.inInput = true
+						// Only reset scroll if we're NOT in reply mode
+						if m.replyingToMsg == -1 {
+							m.scrollOffset = 0
+						}
 					}
 				}
 			}
@@ -270,20 +467,58 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.view == "chats" && len(m.chats) > 0 {
 				m.view = "messages"
 				m.inInput = true
+				m.scrollOffset = 0 // Reset scroll when switching chats
 				// Clear reply highlights and replying state when switching chats
 				m.replyHighlights = make(map[int]bool)
 				m.replyingToMsg = -1
 				return m, getMessages(m.chats[m.selectedChat].ID)
+			} else if m.view == "messages" && !m.inInput {
+				// In select mode - check if selected message has a quote
+				if m.selectedMsg >= 0 && m.selectedMsg < len(m.messages) {
+					selectedMessage := m.messages[m.selectedMsg]
+					if selectedMessage.ResponseToID != "" {
+						// Find the quoted message index
+						quotedMsgIndex := m.findMessageIndexByID(selectedMessage.ResponseToID)
+						if quotedMsgIndex != -1 {
+							// Jump to the quoted message
+							m.selectedMsg = quotedMsgIndex
+
+							// Adjust scroll offset to show the quoted message
+							availableHeight := m.height - 2
+							if availableHeight < 1 {
+								availableHeight = 1
+							}
+
+							// Center the quoted message in the view if possible
+							m.scrollOffset = quotedMsgIndex - availableHeight/2
+							if m.scrollOffset < 0 {
+								m.scrollOffset = 0
+							}
+
+							// Make sure we don't scroll past the end
+							messageLines := m.calculateMessageLines()
+							maxScroll := len(messageLines) - availableHeight
+							if m.scrollOffset > maxScroll {
+								m.scrollOffset = maxScroll
+							}
+							if m.scrollOffset < 0 {
+								m.scrollOffset = 0
+							}
+						}
+					}
+				}
 			} else if m.view == "messages" && m.inInput {
 				// Check if we're replying to a message
 				if m.replyingToMsg != -1 && m.replyingToMsg < len(m.messages) {
 					cmd := sendReply(m.chats[m.selectedChat].ID, m.input, m.messages[m.replyingToMsg].MsgID)
 					m.input = ""
 					m.replyingToMsg = -1 // Clear reply state after sending
+					m.scrollOffset = 0   // Reset scroll to show latest messages
 					return m, cmd
 				} else {
 					cmd := sendMessage(m.chats[m.selectedChat].ID, m.input)
 					m.input = ""
+					m.scrollOffset = 0 // Reset scroll to show latest messages
 					return m, cmd
 				}
 			}
@@ -299,8 +534,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.replyHighlights = make(map[int]bool)
 					m.replyHighlights[m.selectedMsg] = true
 					m.replyingToMsg = m.selectedMsg
-					// Shift focus to input buffer
+					// Shift focus to input buffer but keep current scroll offset
 					m.inInput = true
+					// DON'T reset scroll offset here - keep the current position
 				}
 			} else if m.view == "messages" && m.inInput {
 				// allow typing 'r' in buffer
@@ -318,14 +554,27 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "esc":
 			if m.view == "messages" {
-				if m.inInput && m.replyingToMsg != -1 {
-					// If replying and in input, clear reply state and go back to message selection
-					m.replyHighlights = make(map[int]bool)
-					m.replyingToMsg = -1
-					m.inInput = false
+				if !m.inInput {
+					// In select mode - return to input mode
+					m.inInput = true
+					// If we were replying and have reply highlights, keep the current scroll offset
+					// Otherwise, reset scroll to show latest messages
+					if m.replyingToMsg == -1 {
+						m.scrollOffset = 0
+					}
 				} else {
-					m.view = "chats"
-					setTerminalTitle("Whats-CLI")
+					// In input mode - check if replying first
+					if m.replyingToMsg != -1 {
+						// Clear reply state and keep input mode
+						m.replyHighlights = make(map[int]bool)
+						m.replyingToMsg = -1
+						m.scrollOffset = 0 // Reset scroll when clearing reply
+					} else {
+						// Not replying - exit to chats
+						m.view = "chats"
+						m.scrollOffset = 0 // Reset scroll when going back to chats
+						setTerminalTitle("Whats-CLI")
+					}
 				}
 			}
 		default:
@@ -345,11 +594,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case chatsMsg:
 		m.chats = msg
 		m.view = "chats"
+		m.scrollOffset = 0 // Reset scroll when loading chats
 		setTerminalTitle("Whats-CLI")
 	case messagesMsg:
 		m.messages = msg
 		m.inInput = true
 		m.selectedMsg = len(msg) - 1
+		m.scrollOffset = 0 // Reset scroll to show latest messages when loading
 		// Clear reply highlights and replying state when messages are refreshed
 		m.replyHighlights = make(map[int]bool)
 		m.replyingToMsg = -1
@@ -391,7 +642,7 @@ func (m model) View() string {
 		return fmt.Sprintf("Error: %v", m.err)
 	case "chats":
 		var b strings.Builder
-		b.WriteString("Chats (↑ ↓ to navigate, Enter to open, q to quit):\n\n")
+		b.WriteString("Chats (↑ ↓ to navigate, Enter to open, Ctrl+C to quit):\n\n")
 
 		// Calculate available height for chats (total height - header - padding)
 		availableHeight := m.height - 3 // 1 for header, 1 for empty line, 1 for padding
@@ -443,18 +694,26 @@ func (m model) View() string {
 					msg := m.messages[m.selectedMsg]
 					topbarText = fmt.Sprintf(" Replying to \"%s\" (ID: %s)", msg.Body, msg.MsgID)
 				} else {
-					topbarText = fmt.Sprintf(" Selected: %s (R to toggle reply highlight)", m.messages[m.selectedMsg].MsgID)
+					msg := m.messages[m.selectedMsg]
+					actionText := "R to reply"
+					if msg.HasMedia {
+						actionText += ", M to open media"
+					}
+					if msg.ResponseToID != "" {
+						actionText += ", Enter to jump to quoted message"
+					}
+					topbarText = fmt.Sprintf(" Selected: %s (%s, Esc to return to input)", msg.MsgID, actionText)
 				}
 			} else {
-				topbarText = " Selected: "
+				topbarText = " Selected: (Esc to return to input)"
 			}
 		} else {
 			// Check if we're in reply mode
 			if m.replyingToMsg != -1 && m.replyingToMsg < len(m.messages) {
 				msg := m.messages[m.replyingToMsg]
-				topbarText = fmt.Sprintf(" Replying to \"%s\" (ID: %s)", msg.Body, msg.MsgID)
+				topbarText = fmt.Sprintf(" Replying to \"%s\" (ID: %s, Esc to cancel reply)", msg.Body, msg.MsgID)
 			} else {
-				topbarText = " Messages (↑ ↓ to select, Enter to send, m to open media, R to toggle reply, Esc to go back)"
+				topbarText = " Messages (↑ ↓ to enter select mode, Enter to send, Esc to go back)"
 			}
 		}
 
@@ -478,162 +737,46 @@ func (m model) View() string {
 			availableHeight = 1
 		}
 
-		// Build messages content
-		var messageLines []string
-		for i, msg := range m.messages {
-			var linePrefix string
-			if !m.inInput {
-				if i == m.selectedMsg {
-					linePrefix = "> "
-				} else {
-					linePrefix = "  "
-				}
+		// Get all message lines
+		messageLines := m.calculateMessageLines()
+
+		// Apply scrolling logic
+		var displayLines []string
+		if m.inInput && m.replyingToMsg == -1 {
+			// In input mode and NOT replying, show the most recent messages
+			if len(messageLines) > availableHeight {
+				startIdx := len(messageLines) - availableHeight
+				displayLines = messageLines[startIdx:]
+			} else {
+				displayLines = messageLines
+			}
+		} else {
+			// In select mode OR in reply mode, use scroll offset
+			startIdx := m.scrollOffset
+			endIdx := m.scrollOffset + availableHeight
+
+			// Ensure we don't scroll past the end
+			if endIdx > len(messageLines) {
+				endIdx = len(messageLines)
+				startIdx = max(0, endIdx-availableHeight)
 			}
 
-			ts := msg.Timestamp.Local().Format("15:04")
-			sender := msg.From
-			if strings.Contains(m.chats[m.selectedChat].ID, "@g.us") {
-				sender = msg.GroupFrom
+			// Ensure we don't scroll before the beginning
+			if startIdx < 0 {
+				startIdx = 0
 			}
 
-			body := msg.Body
-			msgPrefix := "[" + ts + "] <" + sender + ">: "
-
-			// Calculate the full prefix length (line prefix + message prefix)
-			fullPrefixLength := utf8.RuneCountInString(linePrefix + msgPrefix)
-
-			// Handle reply indicator
-			var replyPrefix string
-			if msg.ResponseToID != "" {
-				// Find the original message body (now includes media indicator)
-				originalBody := m.findMessageByID(msg.ResponseToID)
-				// Truncate original body if too long (adjust as needed)
-				if len(originalBody) > 30 {
-					originalBody = originalBody[:27] + "..."
-				}
-				replyPrefix = fmt.Sprintf("[REPLY: %s] ", originalBody)
+			if startIdx < len(messageLines) {
+				displayLines = messageLines[startIdx:endIdx]
 			}
-
-			// Handle media indicator
-			var mediaPrefix string
-			if msg.HasMedia {
-				mediaPrefix = "[MEDIA] "
-			}
-
-			// Combine all prefixes with the body
-			combinedPrefix := replyPrefix + mediaPrefix
-			fullBody := combinedPrefix + body
-
-			// Calculate available width for message content
-			availableWidth := m.width - fullPrefixLength
-
-			// Wrap the message body BEFORE applying styling
-			wrappedLines := wrapText(fullBody, availableWidth)
-
-			// Check if this message has reply highlight or is being replied to
-			hasReplyHighlight := m.replyHighlights[i] || (m.replyingToMsg == i)
-
-			// Apply styling to msgPrefix if it's from me (unless reply highlighted)
-			styledMsgPrefix := msgPrefix
-			if !hasReplyHighlight && msg.FromMe {
-				styledMsgPrefix = selfPrefix.Render(msgPrefix)
-			}
-
-			if len(wrappedLines) > 0 {
-				firstLine := wrappedLines[0]
-
-				// Apply styling to the first line content (unless reply highlighted)
-				if !hasReplyHighlight {
-					// Handle reply indicator styling
-					if strings.HasPrefix(firstLine, "[REPLY:") {
-						// Find the end of the reply indicator by looking for the last "] "
-						replyEndIdx := strings.LastIndex(firstLine, "] ")
-						if replyEndIdx != -1 {
-							replyIndicatorText := firstLine[:replyEndIdx+1] // Include "]" but not the space
-							rest := firstLine[replyEndIdx+2:]               // Skip "] "
-
-							// Style the reply indicator without the trailing space
-							styledReplyIndicator := replyHighlight.Render(replyIndicatorText) + " "
-
-							// Handle media and self styling for the rest
-							if strings.HasPrefix(rest, "[MEDIA]") {
-								mediaLabel := "[MEDIA]"
-								afterMedia := strings.TrimPrefix(rest, mediaLabel)
-								if msg.FromMe {
-									firstLine = styledReplyIndicator + hyperlink.Render(mediaLabel) + selfBody.Render(afterMedia)
-								} else {
-									firstLine = styledReplyIndicator + hyperlink.Render(mediaLabel) + afterMedia
-								}
-							} else if msg.FromMe {
-								firstLine = styledReplyIndicator + selfBody.Render(rest)
-							} else {
-								firstLine = styledReplyIndicator + rest
-							}
-						}
-					} else if strings.HasPrefix(firstLine, "[MEDIA]") {
-						// Handle media without reply
-						mediaLabel := "[MEDIA]"
-						rest := strings.TrimPrefix(firstLine, mediaLabel)
-						if msg.FromMe {
-							firstLine = hyperlink.Render(mediaLabel) + selfBody.Render(rest)
-						} else {
-							firstLine = hyperlink.Render(mediaLabel) + rest
-						}
-					} else if msg.FromMe {
-						// For self messages without media or reply, apply self styling
-						firstLine = selfBody.Render(firstLine)
-					}
-				}
-
-				// Build the complete first line
-				completeLine := fmt.Sprintf("%s%s%s", linePrefix, styledMsgPrefix, firstLine)
-
-				// Apply reply highlight to the entire line if needed
-				if hasReplyHighlight {
-					// Pad the line to full width and apply highlight
-					padding := strings.Repeat(" ", max(0, m.width-utf8.RuneCountInString(completeLine)))
-					completeLine = replyHighlight.Width(m.width).Render(completeLine + padding)
-				}
-
-				messageLines = append(messageLines, completeLine)
-
-				// Print continuation lines with padding and consistent styling
-				padding := strings.Repeat(" ", fullPrefixLength)
-				for j := 1; j < len(wrappedLines); j++ {
-					continuationLine := wrappedLines[j]
-
-					// Apply consistent styling to continuation lines (unless reply highlighted)
-					if !hasReplyHighlight && msg.FromMe {
-						continuationLine = selfBody.Render(continuationLine)
-					}
-
-					// Build complete continuation line
-					completeContLine := fmt.Sprintf("%s%s", padding, continuationLine)
-
-					// Apply reply highlight to continuation lines if needed
-					if hasReplyHighlight {
-						linePadding := strings.Repeat(" ", max(0, m.width-utf8.RuneCountInString(completeContLine)))
-						completeContLine = replyHighlight.Width(m.width).Render(completeContLine + linePadding)
-					}
-
-					messageLines = append(messageLines, completeContLine)
-				}
-			}
-		}
-
-		// Display messages with scrolling if needed
-		if len(messageLines) > availableHeight {
-			// Show the most recent messages that fit
-			startIdx := len(messageLines) - availableHeight
-			messageLines = messageLines[startIdx:]
 		}
 
 		// Fill remaining space if needed
-		for len(messageLines) < availableHeight {
-			messageLines = append([]string{""}, messageLines...)
+		for len(displayLines) < availableHeight {
+			displayLines = append([]string{""}, displayLines...)
 		}
 
-		for _, line := range messageLines {
+		for _, line := range displayLines {
 			b.WriteString(line + "\n")
 		}
 
