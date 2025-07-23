@@ -1,37 +1,27 @@
 package main
 
 import (
+	"fmt"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type error_page struct {
-	err error
-}
-type errMsg error
-
-func (ep error_page) View() string {
-	return "Error: " + ep.err.Error()
-}
-func (ep error_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch m := msg.(type) {
-	case error:
-		ep.err = m
-	}
-	return ep, nil
-}
-func (ep error_page) Init() tea.Cmd {
-	return nil
-}
-
 type loading_page struct {
-	from_app *app
+	container *pageContainer
+}
+
+func new_loading_page(container *pageContainer) loading_page {
+	if container == nil {
+		panic("passed nil cotainer")
+	}
+	return loading_page{container: container}
 }
 
 func (lp loading_page) View() string {
-	return "loading chats"
+	return "loading chats" + fmt.Sprintf("count: %v\n", lp.container)
 }
 func (lp loading_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	cp := new_chats_page(lp.from_app)
+	cp := new_chats_page(lp.container)
 	return cp, getChats()
 }
 func (lp loading_page) Init() tea.Cmd {

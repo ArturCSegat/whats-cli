@@ -17,20 +17,22 @@ type chats_page struct {
 	chats           []chat
 	selectedChat    int
 	scrollOffset 	int
-	from_app		*app
+	container		*pageContainer
 }
+
 type chatsLoadedMsg []chat
 
-func new_chats_page(app *app) chats_page {
+func new_chats_page(container *pageContainer) chats_page {
+	if container == nil {
+		panic("passed nil container")
+	}
+
 	cp := chats_page{}
-	cp.from_app = app
+	cp.container = container 
 	cp.selectedChat = 0 
 	cp.scrollOffset = 0
 	return cp
 }
-
-
-
 
 func (cp chats_page) Init() tea.Cmd {
 	return nil
@@ -38,15 +40,17 @@ func (cp chats_page) Init() tea.Cmd {
 
 func (cp chats_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case updateAppMsg:
+		return cp, nil
 	case chatsLoadedMsg:
 		cp.chats = msg
 		cp.scrollOffset = 0 // Reset scroll when loading chats
 		setTerminalTitle("Whats-CLI")
 		return cp, nil
 	case tea.KeyMsg:
-		if cp.from_app.flashCount > 0 {
-			cp.from_app.flashCount = 0
-			cp.from_app.flashMsg = ""
+		if cp.container.app.flashCount > 0 {
+			cp.container.app.flashCount = 0
+			cp.container.app.flashMsg = ""
 		}
 		key := msg.String();
 		switch key {
@@ -62,13 +66,13 @@ func (cp chats_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				cp.selectedChat++
 			}
 		case "enter":
-			mp := new_messages_page(cp.chats[cp.selectedChat], cp.from_app)
+			mp := new_messages_page(cp.chats[cp.selectedChat], cp.container)
 			return mp, getMessages(cp.chats[cp.selectedChat].ID)
 		}
 		
 	case webhookMsg:
-		cp.from_app.flashMsg = "MSG FROM " + msg.Chat.Name
-		cp.from_app.flashCount = 6 // 3 flashes (on/off cycles)
+		cp.container.app.flashMsg = "MSG FROM " + msg.Chat.Name
+		cp.container.app.flashCount = 6 // 3 flashes (on/off cycles)
 		return cp, tea.Batch(getChats(), flashTick())
 	}
 
@@ -84,16 +88,16 @@ func (cp chats_page) View() string {
 			b.WriteString("Loading chats...");
 			return b.String()
 		}
-		availableHeight := cp.from_app.height - 3 // 1 for header, 1 for empty line, 1 for padding
+		availableHeight := cp.container.app.height - 3 // 1 for header, 1 for empty line, 1 for padding
 		if availableHeight < 1 {
 			availableHeight = 1
 		}
 
-		// Calculate which chats to show based on selection and available from_app.height
+		// Calculate which chats to show based on selection and available container.app.height
 		startIndex := 0
 		endIndex := len(cp.chats)
 
-		// If we have more chats than available from_app.height, center the selection
+		// If we have more chats than available container.app.height, center the selection
 		if len(cp.chats) > availableHeight {
 			startIndex = cp.selectedChat - availableHeight/2
 			if startIndex < 0 {

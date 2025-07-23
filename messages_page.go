@@ -5,14 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -33,8 +30,11 @@ type message struct {
 }
 
 type messagesLoadedMsg []message
-type messsageFlashMsg string
 type flashTickMsg struct{}
+type updateFlashMsg struct {
+	count 	int
+	msg		string
+}
 type messages_page struct {
 	messages        []message
 	selectedMsg     int
@@ -44,17 +44,21 @@ type messages_page struct {
 	replyingToMsg   int          // index of message being replied to (-1 if not replying)
 	scrollOffset    int          // for scrolling through messages in select mode
 	from_chat       *chat
-	from_app        *app
+	container 		*pageContainer
 }
 
-func new_messages_page(chat chat, app *app) messages_page {
+func new_messages_page(chat chat, container *pageContainer) messages_page {
+	if container == nil {
+		panic("passed nil container")
+	}
+
 	mp := messages_page{}
 	mp.inInput = true
 	mp.scrollOffset = 0 // Reset scroll when switching chats
 	mp.replyHighlights = make(map[int]bool)
 	mp.replyingToMsg = -1
 	mp.selectedMsg = -1
-	mp.from_app = app
+	mp.container = container 
 	mp.from_chat = &chat
 	return mp
 }
@@ -66,9 +70,9 @@ func (mp messages_page) Init() tea.Cmd {
 func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		if mp.from_app.flashCount > 0 {
-			mp.from_app.flashCount = 0
-			mp.from_app.flashMsg = ""
+		if mp.container.app.flashCount > 0 {
+			mp.container.app.flashCount = 0
+			mp.container.app.flashMsg = ""
 		}
 		key := msg.String()
 		switch key {
@@ -82,7 +86,7 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				mp.scrollOffset = 0
 				return mp, nil
 			}
-			cp := new_chats_page(mp.from_app)
+			cp := new_chats_page(mp.container)
 			return cp, getChats()
 		case "up":
 			if mp.inInput {
@@ -98,7 +102,7 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					mp.selectedMsg = len(mp.messages) - 1
 
 					// Calculate available height and set scroll offset to show bottom messages
-					availableHeight := mp.from_app.height - 2 // 1 for topbar, 1 for bottombar
+					availableHeight := mp.container.app.height - 2 // 1 for topbar, 1 for bottombar
 					if availableHeight < 1 {
 						availableHeight = 1
 					}
@@ -126,7 +130,7 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if mp.selectedMsg < len(mp.messages)-1 {
 					mp.selectedMsg++
 					// Adjust scroll offset if message goes off screen
-					availableHeight := mp.from_app.height - 2
+					availableHeight := mp.container.app.height - 2
 					if mp.selectedMsg >= mp.scrollOffset+availableHeight {
 						mp.scrollOffset = mp.selectedMsg - availableHeight + 1
 					}
@@ -152,7 +156,7 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							mp.selectedMsg = quotedMsgIndex
 
 							// Adjust scroll offset to show the quoted message
-							availableHeight := mp.from_app.height - 2
+							availableHeight := mp.container.app.height - 2
 							if availableHeight < 1 {
 								availableHeight = 1
 							}
@@ -234,7 +238,7 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return mp, func() tea.Msg {
 						mediaPath, err := getClipboardMediaFile()
 						if err != nil {
-							return messsageFlashMsg("Clipboard: " + err.Error())
+							return updateFlashMsg{msg:"Clipboard: " + err.Error(), count: 6}
 						}
 						defer os.Remove(mediaPath)
 						return sendMedia(
@@ -327,15 +331,9 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-	case messsageFlashMsg:
-		mp.from_app.flashMsg = string(msg)
-		mp.from_app.flashCount = 6 // 3 flashes (on/off cycles)
-		return mp, flashTick()
 	case webhookMsg:
 		if msg.Chat.ID != mp.from_chat.ID {
-			mp.from_app.flashMsg = "MSG FROM " + msg.Chat.Name
-			mp.from_app.flashCount = 6 // 3 flashes (on/off cycles)
-			return mp, flashTick()
+			return mp, flash(updateFlashMsg{msg:"MSG FROM " + msg.Chat.Name, count:6})
 		}
 		return mp, getMessages(msg.Chat.ID)
 	}
@@ -376,22 +374,22 @@ func (mp messages_page) View() string {
 		}
 	}
 
-	// shorten topbar text if it exceeds terminal from_app.width
+	// shorten topbar text if it exceeds terminal container.app.width
 	topbarTextLength := utf8.RuneCountInString(topbarText)
-	if topbarTextLength > mp.from_app.width {
-		if mp.from_app.width > 3 {
-			topbarText = string([]rune(topbarText)[:mp.from_app.width-3]) + "..."
+	if topbarTextLength > mp.container.app.width {
+		if mp.container.app.width > 3 {
+			topbarText = string([]rune(topbarText)[:mp.container.app.width-3]) + "..."
 		} else {
-			topbarText = string([]rune(topbarText)[:mp.from_app.width])
+			topbarText = string([]rune(topbarText)[:mp.container.app.width])
 		}
 	}
 
-	topbarPadding := strings.Repeat(" ", max(0, mp.from_app.width-utf8.RuneCountInString(topbarText)))
-	topbar := topbarStyle.Width(mp.from_app.width).Render(topbarText + topbarPadding)
+	topbarPadding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(topbarText)))
+	topbar := topbarStyle.Width(mp.container.app.width).Render(topbarText + topbarPadding)
 	b.WriteString(topbar + "\n")
 
-	// Calculate available from_app.height for messages (total height - topbar - bottombar)
-	availableHeight := mp.from_app.height - 2 // 1 for topbar, 1 for bottombar
+	// Calculate available container.app.height for messages (total height - topbar - bottombar)
+	availableHeight := mp.container.app.height - 2 // 1 for topbar, 1 for bottombar
 	if availableHeight < 1 {
 		availableHeight = 1
 	}
@@ -439,25 +437,27 @@ func (mp messages_page) View() string {
 		b.WriteString(line + "\n")
 	}
 
-	// Fixed bottom input bar - full from_app.width
-	var bottombar string
-	if mp.from_app.flashCount > 0 {
+	// Fixed bottom input bar - full container.app.width
+	var flashbar string
+	if mp.container.app.flashCount > 0 {
 		// Alternate between error and normal style for flashing effect
-		if mp.from_app.flashCount%2 == 1 {
-			bottombar = errorBarStyle.Width(mp.from_app.width).Render(" " + mp.from_app.flashMsg)
+		msg := " " + mp.container.app.flashMsg + " : " + fmt.Sprintf("%v", mp.container.app.flashCount)
+		bottombarPadding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(msg)))
+		if mp.container.app.flashCount%2 == 1 {
+			flashbar = errorBarStyle.Width(mp.container.app.width).Render(msg + bottombarPadding)
 		} else {
-			bottombar = bottombarStyle.Width(mp.from_app.width).Render(" " + mp.from_app.flashMsg)
+			flashbar = bottombarStyle.Width(mp.container.app.width).Render(msg + bottombarPadding)
 		}
-	} else {
-		inputText := " Message: " + mp.input
-		if mp.from_app.flashMsg != "" {
-			inputText = " " + mp.from_app.flashMsg
-		}
-		bottombarPadding := strings.Repeat(" ", max(0, mp.from_app.width-utf8.RuneCountInString(inputText)))
-		bottombar = bottombarStyle.Width(mp.from_app.width).Render(inputText + bottombarPadding)
+	} 
+	if flashbar != "" {
+		flashbar+="\n"
 	}
+	b.WriteString(flashbar)
+	var bottombar string
+	inputText := " Message: " + mp.input
+	bottombarPadding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(inputText)))
+	bottombar = bottombarStyle.Width(mp.container.app.width).Render(inputText + bottombarPadding)
 	b.WriteString(bottombar)
-
 	return b.String()
 }
 
@@ -513,8 +513,8 @@ func (mp messages_page) calculateMessageLines() []string {
 		combinedPrefix := replyPrefix + mediaPrefix
 		fullBody := combinedPrefix + body
 
-		// Calculate available from_app.width for message content
-		availableWidth := mp.from_app.width - fullPrefixLength
+		// Calculate available container.app.width for message content
+		availableWidth := mp.container.app.width - fullPrefixLength
 
 		// Wrap the message body BEFORE applying styling
 		wrappedLines := wrapText(fullBody, availableWidth)
@@ -594,9 +594,9 @@ func (mp messages_page) calculateMessageLines() []string {
 
 			// Apply reply highlight to the entire line if needed
 			if hasReplyHighlight || selected {
-				// Pad the line to full from_app.width and apply highlight
-				padding := strings.Repeat(" ", max(0, mp.from_app.width-utf8.RuneCountInString(completeLine)))
-				completeLine = replyHighlight.Width(mp.from_app.width).Render(completeLine + padding)
+				// Pad the line to full container.app.width and apply highlight
+				padding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(completeLine)))
+				completeLine = replyHighlight.Width(mp.container.app.width).Render(completeLine + padding)
 			}
 
 			messageLines = append(messageLines, completeLine)
@@ -615,9 +615,9 @@ func (mp messages_page) calculateMessageLines() []string {
 				completeContLine := fmt.Sprintf("%s%s", padding, continuationLine)
 
 				// Apply reply highlight to continuation lines if needed
-				if hasReplyHighlight {
-					linePadding := strings.Repeat(" ", max(0, mp.from_app.width-utf8.RuneCountInString(completeContLine)))
-					completeContLine = replyHighlight.Width(mp.from_app.width).Render(completeContLine + linePadding)
+				if hasReplyHighlight || selected {
+					linePadding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(completeContLine)))
+					completeContLine = replyHighlight.Width(mp.container.app.width).Render(completeContLine + linePadding)
 				}
 
 				messageLines = append(messageLines, completeContLine)
@@ -686,7 +686,7 @@ func sendMedia(chatId, mediaPath, caption, responseToId string) tea.Cmd {
 		// Open file
 		file, err := os.Open(mediaPath)
 		if err != nil {
-			return messsageFlashMsg("File not found!")
+			return updateFlashMsg{msg:"File not found!", count:6}
 		}
 		defer file.Close()
 
@@ -751,109 +751,14 @@ func sendMedia(chatId, mediaPath, caption, responseToId string) tea.Cmd {
 	}
 }
 func flashTick() tea.Cmd {
-	return tea.Tick(200*time.Millisecond, func(t time.Time) tea.Msg {
+	return tea.Tick(500*time.Millisecond, func(t time.Time) tea.Msg {
 		return flashTickMsg{}
 	})
 }
 
-// --- Clipboard media helper ---
-// Returns a temp file path containing clipboard image or file.
-// Supports PNG/JPEG images and file paths (if clipboard contains a file).
-func getClipboardMediaFile() (string, error) {
-	// Try platform-specific clipboard image extraction
-	switch runtime.GOOS {
-	case "windows":
-		// Try PowerShell to get image from clipboard as PNG
-		tmpfile, err := ioutil.TempFile("", "clipimg-*.png")
-		if err != nil {
-			return "", err
-		}
-		tmpfile.Close()
-		psScript := `[void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
-if ([Windows.Forms.Clipboard]::ContainsImage()) {
-  $img = [Windows.Forms.Clipboard]::GetImage()
-  $img.Save("` + tmpfile.Name() + `", [System.Drawing.Imaging.ImageFormat]::Png)
-  Write-Output "OK"
-} else {
-  Write-Output "NOIMG"
-}`
-		cmd := exec.Command("powershell", "-NoProfile", "-Command", psScript)
-		out, err := cmd.CombinedOutput()
-		if err == nil && strings.Contains(string(out), "OK") {
-			return tmpfile.Name(), nil
-		}
-		os.Remove(tmpfile.Name())
-		// Try file path from clipboard (for drag-drop)
-		psScript2 := `Add-Type -AssemblyName PresentationCore; $f=[Windows.Clipboard]::GetFileDropList(); if ($f.Count -gt 0) { Write-Output $f[0] }`
-		cmd2 := exec.Command("powershell", "-NoProfile", "-Command", psScript2)
-		out2, err2 := cmd2.Output()
-		if err2 == nil && len(strings.TrimSpace(string(out2))) > 0 {
-			return strings.TrimSpace(string(out2)), nil
-		}
-		return "", fmt.Errorf("no image or file in clipboard")
-	case "darwin":
-		// Try pbpaste for PNG
-		tmpfile, err := ioutil.TempFile("", "clipimg-*.png")
-		if err != nil {
-			return "", err
-		}
-		tmpfile.Close()
-		cmd := exec.Command("bash", "-c", "pngpaste "+tmpfile.Name())
-		if err := cmd.Run(); err == nil {
-			// pngpaste succeeded
-			return tmpfile.Name(), nil
-		}
-		os.Remove(tmpfile.Name())
-		// Try pbpaste for file path (from Finder)
-		cmd2 := exec.Command("osascript", "-e", `try
-set theFiles to the clipboard as «class furl»
-set thePath to POSIX path of (theFiles as text)
-on error
-return ""
-end try`)
-		out2, err2 := cmd2.Output()
-		if err2 == nil && len(strings.TrimSpace(string(out2))) > 0 {
-			return strings.TrimSpace(string(out2)), nil
-		}
-		return "", fmt.Errorf("no image or file in clipboard (install pngpaste for images)")
-	default:
-		// Linux: try wl-paste (Wayland) or xclip/xsel (X11)
-		// Try wl-paste --type image/png
-		tmpfile, err := ioutil.TempFile("", "clipimg-*.png")
-		if err != nil {
-			return "", err
-		}
-		tmpfile.Close()
-		cmd := exec.Command("bash", "-c", "wl-paste --type image/png > "+tmpfile.Name())
-		if err := cmd.Run(); err == nil {
-			fi, _ := os.Stat(tmpfile.Name())
-			if fi != nil && fi.Size() > 0 {
-				return tmpfile.Name(), nil
-			}
-		}
-		os.Remove(tmpfile.Name())
-		// Try xclip -selection clipboard -t image/png
-		tmpfile2, err := ioutil.TempFile("", "clipimg-*.png")
-		if err == nil {
-			tmpfile2.Close()
-			cmd2 := exec.Command("bash", "-c", "xclip -selection clipboard -t image/png -o > "+tmpfile2.Name())
-			if err := cmd2.Run(); err == nil {
-				fi, _ := os.Stat(tmpfile2.Name())
-				if fi != nil && fi.Size() > 0 {
-					return tmpfile2.Name(), nil
-				}
-			}
-			os.Remove(tmpfile2.Name())
-		}
-		// Try file path from clipboard (Nautilus, etc)
-		cmd3 := exec.Command("xclip", "-selection", "clipboard", "-o")
-		out3, err3 := cmd3.Output()
-		if err3 == nil {
-			path := strings.TrimSpace(string(out3))
-			if _, err := os.Stat(path); err == nil {
-				return path, nil
-			}
-		}
-		return "", fmt.Errorf("no image or file in clipboard (try wl-paste/xclip/xsel)")
+
+func flash(msg updateFlashMsg) tea.Cmd {
+	return func() tea.Msg {
+		return msg
 	}
 }

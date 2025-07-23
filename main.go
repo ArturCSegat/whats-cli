@@ -22,7 +22,8 @@ func main() {
 	startWebhookListener(cmdChan)
 
 
-	p := tea.NewProgram(initialApp(), tea.WithAltScreen())
+	a := initialApp()
+	p := tea.NewProgram(*a, tea.WithAltScreen())
 
 	go func() {
 
