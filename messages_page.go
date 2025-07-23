@@ -261,7 +261,6 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case messagesLoadedMsg:
-		mp = new_messages_page(*mp.from_chat, mp.from_app);
 		mp.messages = msg
 		if strings.Contains(mp.from_chat.ID, "@g.us") {
 			// Group chat
@@ -287,6 +286,13 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		mp.from_app.flashMsg = string(msg)
 		mp.from_app.flashCount = 6 // 3 flashes (on/off cycles)
 		return mp, flashTick()
+	case webhookMsg:
+		if msg.Chat.ID != mp.from_chat.ID {
+			mp.from_app.flashMsg = "MSG FROM " + msg.Chat.Name
+			mp.from_app.flashCount = 6 // 3 flashes (on/off cycles)
+			return mp, flashTick()
+		} 
+		return mp, getMessages(msg.Chat.ID)
 	}
 	return mp, nil
 }

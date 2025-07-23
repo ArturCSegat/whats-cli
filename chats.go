@@ -66,6 +66,10 @@ func (cp chats_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return mp, getMessages(cp.chats[cp.selectedChat].ID)
 		}
 		
+	case webhookMsg:
+		cp.from_app.flashMsg = "MSG FROM " + msg.Chat.Name
+		cp.from_app.flashCount = 6 // 3 flashes (on/off cycles)
+		return cp, tea.Batch(getChats(), flashTick())
 	}
 
 	return cp, nil

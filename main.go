@@ -18,7 +18,20 @@ func max(a, b int) int {
 }
 
 func main() {
-	if _, err := tea.NewProgram(initialApp(), tea.WithAltScreen()).Run(); err != nil {
+	cmdChan := make(chan tea.Msg, 10)
+	startWebhookListener(cmdChan)
+
+
+	p := tea.NewProgram(initialApp(), tea.WithAltScreen())
+
+	go func() {
+
+		for msg := range cmdChan {
+			p.Send(msg)
+		}
+	}()
+
+	if _, err := p.Run(); err != nil {
 		fmt.Println("Error:", err)
 		os.Exit(1)
 	}
