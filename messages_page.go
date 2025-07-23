@@ -1,18 +1,23 @@
 package main
+
 import (
-	"time"
-	"fmt"
-	"strings"
-	"unicode/utf8"
-	tea "github.com/charmbracelet/bubbletea"
-	"net/http"
-	"encoding/json"
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
-	"os"
-	"net/textproto"
-	"path/filepath"
+	"io/ioutil"
 	"mime/multipart"
+	"net/http"
+	"net/textproto"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 type message struct {
@@ -34,12 +39,12 @@ type messages_page struct {
 	messages        []message
 	selectedMsg     int
 	input           string
-	inInput         bool   // true when buffer focused
+	inInput         bool         // true when buffer focused
 	replyHighlights map[int]bool // tracks which messages have reply highlight
 	replyingToMsg   int          // index of message being replied to (-1 if not replying)
 	scrollOffset    int          // for scrolling through messages in select mode
-	from_chat		*chat
-	from_app		*app
+	from_chat       *chat
+	from_app        *app
 }
 
 func new_messages_page(chat chat, app *app) messages_page {
@@ -53,7 +58,6 @@ func new_messages_page(chat chat, app *app) messages_page {
 	mp.from_chat = &chat
 	return mp
 }
-
 
 func (mp messages_page) Init() tea.Cmd {
 	return nil
@@ -71,8 +75,8 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+c":
 			return mp, tea.Quit
 		case "esc":
-			cp := new_chats_page(mp.from_app);
-			return cp, getChats();
+			cp := new_chats_page(mp.from_app)
+			return cp, getChats()
 		case "up":
 			if mp.inInput {
 				// Entering select mode
@@ -201,6 +205,40 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					)
 				}
 
+				// --- Clipboard media support ---
+				if strings.HasPrefix(mp.input, "media:clipboard") {
+					// Optionally allow caption after a space
+					caption := ""
+					parts := strings.SplitN(mp.input, " ", 2)
+					if len(parts) > 1 {
+						caption = strings.TrimSpace(parts[1])
+					}
+					mp.input = ""
+
+					// Capture reply ID if we're in reply mode
+					var replyToID string
+					if mp.replyingToMsg != -1 {
+						replyToID = mp.messages[mp.replyingToMsg].MsgID
+						mp.replyHighlights = make(map[int]bool)
+						mp.replyingToMsg = -1
+					}
+					mp.scrollOffset = 0
+
+					return mp, func() tea.Msg {
+						mediaPath, err := getClipboardMediaFile()
+						if err != nil {
+							return messsageFlashMsg("Clipboard: " + err.Error())
+						}
+						defer os.Remove(mediaPath)
+						return sendMedia(
+							mp.from_chat.ID,
+							mediaPath,
+							caption,
+							replyToID,
+						)()
+					}
+				}
+
 				// Check if we're replying to a message
 				if mp.replyingToMsg != -1 && mp.replyingToMsg < len(mp.messages) {
 					cmd := sendReply(mp.from_chat.ID, mp.input, mp.messages[mp.replyingToMsg].MsgID)
@@ -216,7 +254,7 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return mp, cmd
 				}
 			}
-			case "r", "R":		
+		case "r", "R":
 			if !mp.inInput && mp.selectedMsg >= 0 && mp.selectedMsg < len(mp.messages) {
 				// Toggle reply highlight for the selected message
 				if mp.replyHighlights[mp.selectedMsg] {
@@ -291,15 +329,13 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			mp.from_app.flashMsg = "MSG FROM " + msg.Chat.Name
 			mp.from_app.flashCount = 6 // 3 flashes (on/off cycles)
 			return mp, flashTick()
-		} 
+		}
 		return mp, getMessages(msg.Chat.ID)
 	}
 	return mp, nil
 }
 
-
-
-func (mp messages_page) View () string {
+func (mp messages_page) View() string {
 	var b strings.Builder
 
 	var topbarText string
@@ -584,7 +620,6 @@ func (mp messages_page) calculateMessageLines() []string {
 	return messageLines
 }
 
-
 func getMessages(chatId string) tea.Cmd {
 	return func() tea.Msg {
 		res, err := http.Get(fmt.Sprintf("%s/client/1/chat/%s/messages", baseURL, chatId))
@@ -688,7 +723,7 @@ func sendMedia(chatId, mediaPath, caption, responseToId string) tea.Cmd {
 		}
 
 		// Prepare and send request
-		url := fmt.Sprintf("%s/client/1/chat/%s/send", baseURL,  chatId)
+		url := fmt.Sprintf("%s/client/1/chat/%s/send", baseURL, chatId)
 		req, err := http.NewRequest("POST", url, body)
 		if err != nil {
 			return error(err)
@@ -714,3 +749,104 @@ func flashTick() tea.Cmd {
 	})
 }
 
+// --- Clipboard media helper ---
+// Returns a temp file path containing clipboard image or file.
+// Supports PNG/JPEG images and file paths (if clipboard contains a file).
+func getClipboardMediaFile() (string, error) {
+	// Try platform-specific clipboard image extraction
+	switch runtime.GOOS {
+	case "windows":
+		// Try PowerShell to get image from clipboard as PNG
+		tmpfile, err := ioutil.TempFile("", "clipimg-*.png")
+		if err != nil {
+			return "", err
+		}
+		tmpfile.Close()
+		psScript := `[void][System.Reflection.Assembly]::LoadWithPartialName("System.Windows.Forms")
+if ([Windows.Forms.Clipboard]::ContainsImage()) {
+  $img = [Windows.Forms.Clipboard]::GetImage()
+  $img.Save("` + tmpfile.Name() + `", [System.Drawing.Imaging.ImageFormat]::Png)
+  Write-Output "OK"
+} else {
+  Write-Output "NOIMG"
+}`
+		cmd := exec.Command("powershell", "-NoProfile", "-Command", psScript)
+		out, err := cmd.CombinedOutput()
+		if err == nil && strings.Contains(string(out), "OK") {
+			return tmpfile.Name(), nil
+		}
+		os.Remove(tmpfile.Name())
+		// Try file path from clipboard (for drag-drop)
+		psScript2 := `Add-Type -AssemblyName PresentationCore; $f=[Windows.Clipboard]::GetFileDropList(); if ($f.Count -gt 0) { Write-Output $f[0] }`
+		cmd2 := exec.Command("powershell", "-NoProfile", "-Command", psScript2)
+		out2, err2 := cmd2.Output()
+		if err2 == nil && len(strings.TrimSpace(string(out2))) > 0 {
+			return strings.TrimSpace(string(out2)), nil
+		}
+		return "", fmt.Errorf("no image or file in clipboard")
+	case "darwin":
+		// Try pbpaste for PNG
+		tmpfile, err := ioutil.TempFile("", "clipimg-*.png")
+		if err != nil {
+			return "", err
+		}
+		tmpfile.Close()
+		cmd := exec.Command("bash", "-c", "pngpaste "+tmpfile.Name())
+		if err := cmd.Run(); err == nil {
+			// pngpaste succeeded
+			return tmpfile.Name(), nil
+		}
+		os.Remove(tmpfile.Name())
+		// Try pbpaste for file path (from Finder)
+		cmd2 := exec.Command("osascript", "-e", `try
+set theFiles to the clipboard as «class furl»
+set thePath to POSIX path of (theFiles as text)
+on error
+return ""
+end try`)
+		out2, err2 := cmd2.Output()
+		if err2 == nil && len(strings.TrimSpace(string(out2))) > 0 {
+			return strings.TrimSpace(string(out2)), nil
+		}
+		return "", fmt.Errorf("no image or file in clipboard (install pngpaste for images)")
+	default:
+		// Linux: try wl-paste (Wayland) or xclip/xsel (X11)
+		// Try wl-paste --type image/png
+		tmpfile, err := ioutil.TempFile("", "clipimg-*.png")
+		if err != nil {
+			return "", err
+		}
+		tmpfile.Close()
+		cmd := exec.Command("bash", "-c", "wl-paste --type image/png > "+tmpfile.Name())
+		if err := cmd.Run(); err == nil {
+			fi, _ := os.Stat(tmpfile.Name())
+			if fi != nil && fi.Size() > 0 {
+				return tmpfile.Name(), nil
+			}
+		}
+		os.Remove(tmpfile.Name())
+		// Try xclip -selection clipboard -t image/png
+		tmpfile2, err := ioutil.TempFile("", "clipimg-*.png")
+		if err == nil {
+			tmpfile2.Close()
+			cmd2 := exec.Command("bash", "-c", "xclip -selection clipboard -t image/png -o > "+tmpfile2.Name())
+			if err := cmd2.Run(); err == nil {
+				fi, _ := os.Stat(tmpfile2.Name())
+				if fi != nil && fi.Size() > 0 {
+					return tmpfile2.Name(), nil
+				}
+			}
+			os.Remove(tmpfile2.Name())
+		}
+		// Try file path from clipboard (Nautilus, etc)
+		cmd3 := exec.Command("xclip", "-selection", "clipboard", "-o")
+		out3, err3 := cmd3.Output()
+		if err3 == nil {
+			path := strings.TrimSpace(string(out3))
+			if _, err := os.Stat(path); err == nil {
+				return path, nil
+			}
+		}
+		return "", fmt.Errorf("no image or file in clipboard (try wl-paste/xclip/xsel)")
+	}
+}
