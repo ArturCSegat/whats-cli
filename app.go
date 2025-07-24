@@ -27,6 +27,7 @@ func (pc * pageContainer) update (msg tea.Msg) tea.Cmd {
 
 type app struct {
 	page_conatiner	*pageContainer
+	id_to_name		map[string]string
 	width           int
 	height          int
 	flashMsg        string       // message to flash in bottom bar
@@ -46,6 +47,7 @@ func initialApp() *app {
 	a.height = height
 	a.flashCount = 0
 	a.flashMsg = ""
+	a.id_to_name = make(map[string]string)
 	return a
 }
 

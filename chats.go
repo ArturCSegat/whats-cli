@@ -43,6 +43,10 @@ func (cp chats_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case updateAppMsg:
 		return cp, nil
 	case chatsLoadedMsg:
+		for _, c := range msg {
+			cp.container.app.id_to_name[c.ID] = c.Name
+		}
+
 		cp.chats = msg
 		cp.scrollOffset = 0 // Reset scroll when loading chats
 		setTerminalTitle("Whats-CLI")

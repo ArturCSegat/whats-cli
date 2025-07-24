@@ -476,9 +476,22 @@ func (mp messages_page) calculateMessageLines() []string {
 		var linePrefix string
 
 		ts := msg.Timestamp.Local().Format("15:04")
-		sender := msg.From
+
+		var sender_id string
 		if strings.Contains(mp.from_chat.ID, "@g.us") {
-			sender = msg.GroupFrom
+			sender_id = msg.GroupFrom
+		} else {
+			sender_id = msg.From
+		}
+
+		sender, ok := mp.container.app.id_to_name[sender_id]
+		if !ok {
+			if msg.FromMe {
+				mp.container.app.id_to_name[sender_id] = "You"
+				sender = "You"
+			} else {
+				sender = sender_id
+			}
 		}
 
 		body := msg.Body
@@ -494,7 +507,7 @@ func (mp messages_page) calculateMessageLines() []string {
 			originalMsg, _ := mp.findMessageByID(msg.ResponseToID)
 			originalBody := originalMsg.Body
 			if originalMsg.HasMedia {
-				originalBody = "[MEDIA] " + originalBody
+				originalBody = originalMsg.getMediaPrefix() + originalBody
 			}
 			// Truncate original body if too long (adjust as needed)
 			if len(originalBody) > 30 {
@@ -504,10 +517,7 @@ func (mp messages_page) calculateMessageLines() []string {
 		}
 
 		// Handle media indicator
-		var mediaPrefix string
-		if msg.HasMedia {
-			mediaPrefix = "[MEDIA] "
-		}
+		mediaPrefix := msg.getMediaPrefix()
 
 		// Combine all prefixes with the body
 		combinedPrefix := replyPrefix + mediaPrefix
@@ -546,13 +556,13 @@ func (mp messages_page) calculateMessageLines() []string {
 						styledReplyIndicator := replyHighlight.Render(replyIndicatorText) + " "
 
 						// Handle media in the reply indicator
-						if strings.Contains(replyIndicatorText, "[MEDIA]") {
+						if msg.HasMedia {
 							// Split the reply indicator to style media separately
-							parts := strings.Split(replyIndicatorText, "[MEDIA]")
+							parts := strings.Split(replyIndicatorText, mediaPrefix)
 							var styledParts []string
 							for i, part := range parts {
 								if i > 0 {
-									styledParts = append(styledParts, hyperlink.Render("[MEDIA]"))
+									styledParts = append(styledParts, hyperlink.Render(mediaPrefix))
 								}
 								styledParts = append(styledParts, replyHighlight.Render(part))
 							}
@@ -560,8 +570,8 @@ func (mp messages_page) calculateMessageLines() []string {
 						}
 
 						// Handle media and self styling for the rest
-						if strings.HasPrefix(rest, "[MEDIA]") {
-							mediaLabel := "[MEDIA]"
+						if strings.HasPrefix(rest, mediaPrefix) {
+							mediaLabel := mediaPrefix
 							afterMedia := strings.TrimPrefix(rest, mediaLabel)
 							if msg.FromMe {
 								firstLine = styledReplyIndicator + hyperlink.Render(mediaLabel) + selfBody.Render(afterMedia)
@@ -574,9 +584,9 @@ func (mp messages_page) calculateMessageLines() []string {
 							firstLine = styledReplyIndicator + rest
 						}
 					}
-				} else if strings.HasPrefix(firstLine, "[MEDIA]") {
+				} else if strings.HasPrefix(firstLine, mediaPrefix) {
 					// Handle media without reply
-					mediaLabel := "[MEDIA]"
+					mediaLabel := mediaPrefix
 					rest := strings.TrimPrefix(firstLine, mediaLabel)
 					if msg.FromMe {
 						firstLine = hyperlink.Render(mediaLabel) + selfBody.Render(rest)
@@ -761,4 +771,14 @@ func flash(msg updateFlashMsg) tea.Cmd {
 	return func() tea.Msg {
 		return msg
 	}
+}
+
+func (msg * message) getMediaPrefix() string {
+	if msg.Type == "ciphertext" {
+		msg.HasMedia = true
+		return "[VIS ONCE MEDIA]"
+	} else if msg.HasMedia {
+		return "[MEDIA]"
+	}
+	return ""
 }
