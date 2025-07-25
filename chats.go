@@ -143,6 +143,7 @@ func getChats() tea.Cmd {
 		if err := json.NewDecoder(res.Body).Decode(&chats); err != nil {
 			return err
 		}
+
 		return chatsLoadedMsg(chats)
 	}
 }

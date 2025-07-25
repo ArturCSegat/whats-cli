@@ -18,15 +18,20 @@ import (
 )
 
 type message struct {
-	MsgID        string    `json:"id"`
-	From         string    `json:"from"`
-	FromMe       bool      `json:"fromMe"`
-	HasMedia     bool      `json:"hasMedia"`
-	GroupFrom    string    `json:"group_member_from"`
-	Body         string    `json:"body"`
-	Type         string    `json:"type"`
-	Timestamp    time.Time `json:"timestamp"`
-	ResponseToID string    `json:"quoteId"`
+	MsgID        	string    		`json:"id"`
+	From         	string    		`json:"from"`
+	Type         	string    		`json:"type"`
+	GroupFrom    	string    		`json:"group_member_from"`
+	FromMe       	bool      		`json:"fromMe"`
+	Body         	string    		`json:"body"`
+	Timestamp    	time.Time 		`json:"timestamp"`
+	HasMedia     	bool      		`json:"hasMedia"`
+	GroupInvite		string			`json:"groupInvite"`
+	IsResponse      bool      		`json:"isQuote"`
+	ResponseToID 	string    		`json:"quoteId"`
+	IsForwarded     bool      		`json:"isForwarded"`
+	MentionedIDs    []string 		`json:"mentionedIds"`
+	Info            map[string]bool `json:"info"`
 }
 
 type messagesLoadedMsg []message
@@ -310,7 +315,7 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case messagesLoadedMsg:
-		mp.messages = msg
+		mp.messages =  msg
 		if strings.Contains(mp.from_chat.ID, "@g.us") {
 			// Group chat
 			chatTitle := mp.from_chat.Name
@@ -646,7 +651,7 @@ func getMessages(chatId string) tea.Cmd {
 		defer res.Body.Close()
 		var msgs []message
 		if err := json.NewDecoder(res.Body).Decode(&msgs); err != nil {
-			return err
+			msgs = append(msgs, message{Body:err.Error()})
 		}
 		return messagesLoadedMsg(msgs)
 	}
@@ -667,6 +672,32 @@ func sendMessage(chatId, text string) tea.Cmd {
 		io.Copy(io.Discard, res.Body)
 		res.Body.Close()
 		return getMessages(chatId)()
+	}
+}
+
+func deleteMessage(chatId, msgId string) tea.Cmd {
+	return func() tea.Msg {
+		req, _ := http.NewRequest(
+			http.MethodDelete,
+			fmt.Sprintf("%s/client/1/message/%s", baseURL, msgId),
+			nil,
+		)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		io.Copy(io.Discard, res.Body)
+		res.Body.Close()
+
+		// TODO: FIX THIS 
+		msg := getMessages(chatId)().(messagesLoadedMsg)
+		for i, m := range msg {
+			if m.MsgID == msgId {
+				msg[i].Type = "revoked"
+				msg[i].Body = ""
+			}
+		}
+		return msg
 	}
 }
 
