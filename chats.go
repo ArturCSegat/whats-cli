@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -52,7 +51,6 @@ func (cp chats_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return cp, nil
 	case chatsLoadedMsg:
 		for _, c := range msg {
-			c.Name = fmt.Sprintf("%s", c.Name)
 			cp.container.app.id_to_name[c.ID] = c.Name
 		}
 
@@ -149,16 +147,12 @@ func getChats() tea.Cmd {
 			return err
 		}
 		defer res.Body.Close()
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			return nil
-		}
 
 		var chats []chat
-		if err := json.Unmarshal(body, &chats); err != nil {
+		if err := json.NewDecoder(res.Body).Decode(&chats); err != nil {
 			return err
 		}
+
 		return chatsLoadedMsg(chats)
 	}
 }
-
