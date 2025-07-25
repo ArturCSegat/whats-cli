@@ -18,15 +18,19 @@ import (
 )
 
 type message struct {
-	MsgID        string    `json:"id"`
-	From         string    `json:"from"`
-	FromMe       bool      `json:"fromMe"`
-	HasMedia     bool      `json:"hasMedia"`
-	GroupFrom    string    `json:"group_member_from"`
-	Body         string    `json:"body"`
-	Type         string    `json:"type"`
-	Timestamp    time.Time `json:"timestamp"`
-	ResponseToID string    `json:"quoteId"`
+	MsgID        	string    		`json:"id"`
+	From         	string    		`json:"from"`
+	FromMe       	bool      		`json:"fromMe"`
+	HasMedia     	bool      		`json:"hasMedia"`
+	GroupFrom    	string    		`json:"group_member_from"`
+	Body         	string    		`json:"body"`
+	Type         	string    		`json:"type"`
+	Timestamp    	time.Time 		`json:"timestamp"`
+	IsResponse      bool      		`json:"isQuote"`
+	ResponseToID 	string    		`json:"quoteId"`
+	IsForwarded     bool      		`json:"isForwarded"`
+	MentionedIDs    []string  		`json:"mentionedIds"`
+	Info            map[string]bool `json:"info"`
 }
 
 type messagesLoadedMsg []message
@@ -291,6 +295,13 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					mediaURL := fmt.Sprintf("%s/client/1/message/%s/media", baseURL, mp.messages[mp.selectedMsg].MsgID)
 					openURL(mediaURL)
 				}
+			} else {
+				// allow typing 'm' in buffer
+				mp.input += key
+			}
+		case "d", "D":
+			if !mp.inInput {
+				return mp, deleteMessage(mp.from_chat.ID, mp.messages[mp.selectedMsg].MsgID)
 			} else {
 				// allow typing 'm' in buffer
 				mp.input += key
@@ -651,7 +662,6 @@ func getMessages(chatId string) tea.Cmd {
 		return messagesLoadedMsg(msgs)
 	}
 }
-
 func sendMessage(chatId, text string) tea.Cmd {
 	return func() tea.Msg {
 		data := map[string]string{"message": text}
@@ -669,6 +679,24 @@ func sendMessage(chatId, text string) tea.Cmd {
 		return getMessages(chatId)()
 	}
 }
+
+func deleteMessage(chatId, msgId string) tea.Cmd {
+	return func() tea.Msg {
+		req, _ := http.NewRequest(
+			http.MethodDelete,
+			fmt.Sprintf("%s/client/1/message/%s", baseURL, msgId),
+			nil,
+		)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return err
+		}
+		io.Copy(io.Discard, res.Body)
+		res.Body.Close()
+		return getMessages(chatId)()
+	}
+}
+
 
 func sendReply(chatId, text, responseToId string) tea.Cmd {
 	return func() tea.Msg {
@@ -774,7 +802,10 @@ func flash(msg updateFlashMsg) tea.Cmd {
 }
 
 func (msg * message) getMediaPrefix() string {
-	if msg.Type == "ciphertext" {
+	if msg.Type == "revoked" {
+		msg.HasMedia = true
+		return "[DELETED]"
+	} else if msg.Type == "ciphertext" {
 		msg.HasMedia = true
 		return "[VIS ONCE MEDIA]"
 	} else if msg.HasMedia {
