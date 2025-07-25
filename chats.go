@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 
@@ -11,15 +10,8 @@ import (
 )
 
 type chat struct {
-		ID             string `json:"id"`
-		Name           string `json:"name"`
-		UnreadCount    int    `json:"unreadCount"`
-		LastMessage    string `json:"lastMessageBody"`
-		IsArchived     bool   `json:"isArchived"`
-		IsGroup        bool   `json:"isGroup"`
-		IsMuted        bool   `json:"isMuted"`
-		IsReadOnly     bool   `json:"isReadOnly"`
-		IsPinned       bool   `json:"isPinned"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 type chats_page struct {
 	chats           []chat
@@ -52,7 +44,6 @@ func (cp chats_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return cp, nil
 	case chatsLoadedMsg:
 		for _, c := range msg {
-			c.Name = fmt.Sprintf("%s", c.Name)
 			cp.container.app.id_to_name[c.ID] = c.Name
 		}
 
@@ -141,7 +132,6 @@ func (cp chats_page) View() string {
 		return b.String()
 }
 
-
 func getChats() tea.Cmd {
 	return func() tea.Msg {
 		res, err := http.Get(fmt.Sprintf("%s/client/1/chat", baseURL))
@@ -149,16 +139,10 @@ func getChats() tea.Cmd {
 			return err
 		}
 		defer res.Body.Close()
-		body, err := io.ReadAll(res.Body)
-		if err != nil {
-			return nil
-		}
-
 		var chats []chat
-		if err := json.Unmarshal(body, &chats); err != nil {
+		if err := json.NewDecoder(res.Body).Decode(&chats); err != nil {
 			return err
 		}
 		return chatsLoadedMsg(chats)
 	}
 }
-
