@@ -300,6 +300,17 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// allow typing 'm' in buffer
 				mp.input += key
 			}
+		case "d", "D":
+			if !mp.inInput {
+				err := deleteMessage(mp.from_chat.ID, mp.messages[mp.selectedMsg].MsgID)
+				if err != nil {
+					return mp, flash(updateFlashMsg{msg:"ERROR when deleting msg", count:6})
+				}
+				time.Sleep(3*time.Second)
+				return mp, getMessages(mp.from_chat.ID) 
+			} else {
+				mp.input += key
+			}
 		default:
 			if mp.inInput {
 				switch msg.Type {
@@ -675,30 +686,25 @@ func sendMessage(chatId, text string) tea.Cmd {
 	}
 }
 
-func deleteMessage(chatId, msgId string) tea.Cmd {
-	return func() tea.Msg {
-		req, _ := http.NewRequest(
+func deleteMessage(chatId, msgId string) error {
+		c := &http.Client{}
+		req, err := http.NewRequest(
 			http.MethodDelete,
 			fmt.Sprintf("%s/client/1/message/%s", baseURL, msgId),
 			nil,
 		)
-		res, err := http.DefaultClient.Do(req)
+
 		if err != nil {
 			return err
 		}
-		io.Copy(io.Discard, res.Body)
-		res.Body.Close()
+		
 
-		// TODO: FIX THIS 
-		msg := getMessages(chatId)().(messagesLoadedMsg)
-		for i, m := range msg {
-			if m.MsgID == msgId {
-				msg[i].Type = "revoked"
-				msg[i].Body = ""
-			}
+		res, err := c.Do(req)
+		if err != nil {
+			return err
 		}
-		return msg
-	}
+		res.Body.Close()
+		return nil
 }
 
 func sendReply(chatId, text, responseToId string) tea.Cmd {
@@ -805,7 +811,10 @@ func flash(msg updateFlashMsg) tea.Cmd {
 }
 
 func (msg * message) getMediaPrefix() string {
-	if msg.Type == "ciphertext" {
+	if msg.Type == "revoked" {
+		msg.HasMedia = true
+		return "[DELETED]"
+	} else if msg.Type == "ciphertext" {
 		msg.HasMedia = true
 		return "[VIS ONCE MEDIA]"
 	} else if msg.HasMedia {
