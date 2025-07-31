@@ -300,6 +300,15 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// allow typing 'm' in buffer
 				mp.input += key
 			}
+		case "f", "F":
+			if !mp.inInput {
+				cp := new_chats_page(mp.container)
+				cp.forwarding.isForwarding = true
+				cp.forwarding.MsgID = mp.messages[mp.selectedMsg].MsgID
+				return cp, getChats()
+			} else {
+				mp.input += key
+			}
 		case "d", "D":
 			if !mp.inInput {
 				err := deleteMessage(mp.from_chat.ID, mp.messages[mp.selectedMsg].MsgID)
@@ -616,7 +625,14 @@ func (mp messages_page) calculateMessageLines() []string {
 			}
 
 			// Build the complete first line
-			completeLine := fmt.Sprintf("%s%s%s", linePrefix, styledMsgPrefix, firstLine)
+			var fowardedPrefix string
+			if msg.IsForwarded {
+				fowardedPrefix = "[FORWARDED] "
+			}
+			if msg.IsForwarded && !hasReplyHighlight && !selected {
+				fowardedPrefix = replyHighlight.Render(fowardedPrefix)
+			}
+			completeLine := fmt.Sprintf("%s%s%s%s", linePrefix, styledMsgPrefix, fowardedPrefix, firstLine)
 
 			// Apply reply highlight to the entire line if needed
 			if hasReplyHighlight || selected {
