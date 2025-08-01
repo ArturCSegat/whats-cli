@@ -2,27 +2,33 @@ package main
 
 import (
 	"os"
-
+	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
+	lua "github.com/yuin/gopher-lua"
 	"golang.org/x/term"
 )
 
+
+
 type pageContainer struct {
 	page 	tea.Model
+	commands []tea.Cmd
 	app		*app
 }
 
 func new_page_container(page tea.Model, app *app) *pageContainer {
 	pc := &pageContainer{}
+	pc.commands = make([]tea.Cmd, 0)
 	pc.page = page
 	pc.app = app
 	return pc
 }
 
-func (pc * pageContainer) update (msg tea.Msg) tea.Cmd {
-	p, cmd := pc.page.Update(msg);
+func (pc * pageContainer) update (msg tea.Msg) {
+	pc.commands = make([]tea.Cmd, 0)
+	p, _ := pc.page.Update(msg);
 	pc.page = p
-	return cmd
+	pc.page.Init()
 }
 
 type app struct {
@@ -32,9 +38,9 @@ type app struct {
 	height          int
 	flashMsg        string       // message to flash in bottom bar
 	flashCount      int          // counter for flash animation
+	luaState	*lua.LState 
+	luaReturn	string
 }
-
-type updateAppMsg *app
 
 func initialApp() *app {
 	width, height, _ := term.GetSize(int(os.Stdout.Fd()))
@@ -48,6 +54,12 @@ func initialApp() *app {
 	a.flashCount = 0
 	a.flashMsg = ""
 	a.id_to_name = make(map[string]string)
+	a.luaState = lua.NewState()
+	if err := a.luaState.DoFile("./lua/init.lua"); err != nil {
+		panic(fmt.Errorf("error loading init.lua: %w", err))
+	}
+	setup_styles(a.luaState)
+
 	return a
 }
 
@@ -78,8 +90,8 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	
-	cmd := m.page_conatiner.update(msg);
-	cmds = append(cmds, cmd)
+	m.page_conatiner.update(msg);
+	cmds = append(cmds, m.page_conatiner.commands...)
 	return m, tea.Batch(cmds...)
 }
 
@@ -87,3 +99,4 @@ func (m app) View() string {
 	m.page_conatiner.app = &m
 	return m.page_conatiner.page.View()
 }
+

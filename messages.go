@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	lua "github.com/yuin/gopher-lua"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -18,27 +19,27 @@ import (
 )
 
 type message struct {
-	MsgID        	string    		`json:"id"`
-	From         	string    		`json:"from"`
-	Type         	string    		`json:"type"`
-	GroupFrom    	string    		`json:"group_member_from"`
-	FromMe       	bool      		`json:"fromMe"`
-	Body         	string    		`json:"body"`
-	Timestamp    	time.Time 		`json:"timestamp"`
-	HasMedia     	bool      		`json:"hasMedia"`
-	GroupInvite		string			`json:"groupInvite"`
-	IsResponse      bool      		`json:"isQuote"`
-	ResponseToID 	string    		`json:"quoteId"`
-	IsForwarded     bool      		`json:"isForwarded"`
-	MentionedIDs    []string 		`json:"mentionedIds"`
-	Info            map[string]bool `json:"info"`
+	MsgID        string          `json:"id"`
+	From         string          `json:"from"`
+	Type         string          `json:"type"`
+	GroupFrom    string          `json:"group_member_from"`
+	FromMe       bool            `json:"fromMe"`
+	Body         string          `json:"body"`
+	Timestamp    time.Time       `json:"timestamp"`
+	HasMedia     bool            `json:"hasMedia"`
+	GroupInvite  string          `json:"groupInvite"`
+	IsResponse   bool            `json:"isQuote"`
+	ResponseToID string          `json:"quoteId"`
+	IsForwarded  bool            `json:"isForwarded"`
+	MentionedIDs []string        `json:"mentionedIds"`
+	Info         map[string]bool `json:"info"`
 }
 
 type messagesLoadedMsg []message
 type flashTickMsg struct{}
 type updateFlashMsg struct {
-	count 	int
-	msg		string
+	count int
+	msg   string
 }
 type messages_page struct {
 	messages        []message
@@ -49,7 +50,7 @@ type messages_page struct {
 	replyingToMsg   int          // index of message being replied to (-1 if not replying)
 	scrollOffset    int          // for scrolling through messages in select mode
 	from_chat       *chat
-	container 		*pageContainer
+	container       *pageContainer
 }
 
 func new_messages_page(chat chat, container *pageContainer) messages_page {
@@ -63,306 +64,13 @@ func new_messages_page(chat chat, container *pageContainer) messages_page {
 	mp.replyHighlights = make(map[int]bool)
 	mp.replyingToMsg = -1
 	mp.selectedMsg = -1
-	mp.container = container 
+	mp.container = container
 	mp.from_chat = &chat
 	return mp
 }
 
 func (mp messages_page) Init() tea.Cmd {
 	return nil
-}
-
-func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		if mp.container.app.flashCount > 0 {
-			mp.container.app.flashCount = 0
-			mp.container.app.flashMsg = ""
-		}
-		key := msg.String()
-		switch key {
-		case "ctrl+c":
-			return mp, tea.Quit
-		case "esc":
-			if !mp.inInput {
-				// If in selection mode, return to input mode and reset scroll to latest messages
-				mp.inInput = true
-				mp.selectedMsg = -1
-				mp.scrollOffset = 0
-				return mp, nil
-			}
-			cp := new_chats_page(mp.container)
-			return cp, getChats()
-		case "up":
-			if mp.inInput {
-				// Entering select mode
-				mp.inInput = false
-
-				// If we're in reply mode, return to the message selected for reply
-				if mp.replyingToMsg != -1 {
-					mp.selectedMsg = mp.replyingToMsg
-					// Keep the current scroll offset when returning to reply message
-				} else {
-					// Not in reply mode - start from the last message
-					mp.selectedMsg = len(mp.messages) - 1
-
-					// Calculate available height and set scroll offset to show bottom messages
-					availableHeight := mp.container.app.height - 2 // 1 for topbar, 1 for bottombar
-					if availableHeight < 1 {
-						availableHeight = 1
-					}
-
-					// Get all message lines to calculate proper scroll offset
-					messageLines := mp.calculateMessageLines()
-
-					// Set scroll offset to show the last messages (like input mode does)
-					if len(messageLines) > availableHeight {
-						mp.scrollOffset = len(messageLines) - availableHeight
-					} else {
-						mp.scrollOffset = 0
-					}
-				}
-			} else if mp.selectedMsg > 0 {
-				mp.selectedMsg--
-				// Adjust scroll offset if needed to keep selected message visible
-				if mp.selectedMsg < mp.scrollOffset {
-					mp.scrollOffset = mp.selectedMsg
-				}
-			}
-			return mp, nil
-		case "down":
-			if !mp.inInput {
-				if mp.selectedMsg < len(mp.messages)-1 {
-					mp.selectedMsg++
-					// Adjust scroll offset if message goes off screen
-					availableHeight := mp.container.app.height - 2
-					if mp.selectedMsg >= mp.scrollOffset+availableHeight {
-						mp.scrollOffset = mp.selectedMsg - availableHeight + 1
-					}
-				} else {
-					// Return to input mode
-					mp.inInput = true
-					// Only reset scroll if we're NOT in reply mode
-					if mp.replyingToMsg == -1 {
-						mp.scrollOffset = 0
-					}
-				}
-			}
-		case "enter":
-			if !mp.inInput {
-				// In select mode - check if selected message has a quote
-				if mp.selectedMsg >= 0 && mp.selectedMsg < len(mp.messages) {
-					selectedMessage := mp.messages[mp.selectedMsg]
-					if selectedMessage.ResponseToID != "" {
-						// Find the quoted message index
-						_, quotedMsgIndex := mp.findMessageByID(selectedMessage.ResponseToID)
-						if quotedMsgIndex != -1 {
-							// Jump to the quoted message
-							mp.selectedMsg = quotedMsgIndex
-
-							// Adjust scroll offset to show the quoted message
-							availableHeight := mp.container.app.height - 2
-							if availableHeight < 1 {
-								availableHeight = 1
-							}
-
-							// Center the quoted message in the view if possible
-							mp.scrollOffset = quotedMsgIndex - availableHeight/2
-							if mp.scrollOffset < 0 {
-								mp.scrollOffset = 0
-							}
-
-							// Make sure we don't scroll past the end
-							messageLines := mp.calculateMessageLines()
-							maxScroll := len(messageLines) - availableHeight
-							if mp.scrollOffset > maxScroll {
-								mp.scrollOffset = maxScroll
-							}
-							if mp.scrollOffset < 0 {
-								mp.scrollOffset = 0
-							}
-						}
-					}
-				}
-			} else {
-				// Check for media upload syntax
-				if strings.HasPrefix(mp.input, "media:\"") {
-					parts := strings.SplitN(mp.input[len("media:\""):], "\"", 2)
-					if len(parts) < 2 {
-						return mp, nil
-					}
-
-					mediaPath := parts[0]
-					caption := ""
-					if len(parts) > 1 {
-						caption = strings.TrimSpace(parts[1])
-					}
-
-					// Clear input buffer immediately
-					mp.input = ""
-
-					// Capture reply ID if we're in reply mode
-					var replyToID string
-					if mp.replyingToMsg != -1 {
-						replyToID = mp.messages[mp.replyingToMsg].MsgID
-						// Clear reply state
-						mp.replyHighlights = make(map[int]bool)
-						mp.replyingToMsg = -1
-					}
-
-					// Reset scroll to show latest messages
-					mp.scrollOffset = 0
-
-					return mp, sendMedia(
-						mp.from_chat.ID,
-						mediaPath,
-						caption,
-						replyToID,
-					)
-				}
-
-				// --- Clipboard media support ---
-				if strings.HasPrefix(mp.input, "media:clipboard") {
-					// Optionally allow caption after a space
-					caption := ""
-					parts := strings.SplitN(mp.input, " ", 2)
-					if len(parts) > 1 {
-						caption = strings.TrimSpace(parts[1])
-					}
-					mp.input = ""
-
-					// Capture reply ID if we're in reply mode
-					var replyToID string
-					if mp.replyingToMsg != -1 {
-						replyToID = mp.messages[mp.replyingToMsg].MsgID
-						mp.replyHighlights = make(map[int]bool)
-						mp.replyingToMsg = -1
-					}
-					mp.scrollOffset = 0
-
-					return mp, func() tea.Msg {
-						mediaPath, err := getClipboardMediaFile()
-						if err != nil {
-							return updateFlashMsg{msg:"Clipboard: " + err.Error(), count: 6}
-						}
-						defer os.Remove(mediaPath)
-						return sendMedia(
-							mp.from_chat.ID,
-							mediaPath,
-							caption,
-							replyToID,
-						)()
-					}
-				}
-
-				// Check if we're replying to a message
-				if mp.replyingToMsg != -1 && mp.replyingToMsg < len(mp.messages) {
-					cmd := sendReply(mp.from_chat.ID, mp.input, mp.messages[mp.replyingToMsg].MsgID)
-					mp.input = ""
-					mp.replyHighlights = make(map[int]bool)
-					mp.replyingToMsg = -1 // Clear reply state after sending
-					mp.scrollOffset = 0   // Reset scroll to show latest messages
-					return mp, cmd
-				} else {
-					cmd := sendMessage(mp.from_chat.ID, mp.input)
-					mp.input = ""
-					mp.scrollOffset = 0 // Reset scroll to show latest messages
-					return mp, cmd
-				}
-			}
-		case "r", "R":
-			if !mp.inInput && mp.selectedMsg >= 0 && mp.selectedMsg < len(mp.messages) {
-				// Toggle reply highlight for the selected message
-				if mp.replyHighlights[mp.selectedMsg] {
-					// If already highlighted, remove highlight and clear reply state
-					mp.replyHighlights[mp.selectedMsg] = false
-					mp.replyingToMsg = -1
-				} else {
-					// Clear any existing highlights and set new one
-					mp.replyHighlights = make(map[int]bool)
-					mp.replyHighlights[mp.selectedMsg] = true
-					mp.replyingToMsg = mp.selectedMsg
-					// Shift focus to input buffer but keep current scroll offset
-					mp.inInput = true
-					// DON'T reset scroll offset here - keep the current position
-				}
-			} else if mp.inInput {
-				// allow typing 'r' in buffer
-				mp.input += key
-			}
-		case "m", "M":
-			if !mp.inInput {
-				if mp.messages[mp.selectedMsg].HasMedia {
-					mediaURL := fmt.Sprintf("%s/client/1/message/%s/media", baseURL, mp.messages[mp.selectedMsg].MsgID)
-					openURL(mediaURL)
-				}
-			} else {
-				// allow typing 'm' in buffer
-				mp.input += key
-			}
-		case "f", "F":
-			if !mp.inInput {
-				cp := new_chats_page(mp.container)
-				cp.forwarding.isForwarding = true
-				cp.forwarding.MsgID = mp.messages[mp.selectedMsg].MsgID
-				return cp, getChats()
-			} else {
-				mp.input += key
-			}
-		case "d", "D":
-			if !mp.inInput {
-				err := deleteMessage(mp.from_chat.ID, mp.messages[mp.selectedMsg].MsgID)
-				if err != nil {
-					return mp, flash(updateFlashMsg{msg:"ERROR when deleting msg", count:6})
-				}
-				time.Sleep(3*time.Second)
-				return mp, getMessages(mp.from_chat.ID) 
-			} else {
-				mp.input += key
-			}
-		default:
-			if mp.inInput {
-				switch msg.Type {
-				case tea.KeyRunes:
-					mp.input += msg.String()
-				case tea.KeySpace:
-					mp.input += " "
-				case tea.KeyBackspace:
-					if len(mp.input) > 0 {
-						mp.input = mp.input[:len(mp.input)-1]
-					}
-				}
-			}
-		}
-	case messagesLoadedMsg:
-		mp.messages =  msg
-		if strings.Contains(mp.from_chat.ID, "@g.us") {
-			// Group chat
-			chatTitle := mp.from_chat.Name
-			if chatTitle == "" {
-				chatTitle = mp.from_chat.ID
-			}
-			setTerminalTitle("Whats-CLI: " + chatTitle)
-		} else if len(msg) > 0 {
-			// Private chat — get the 'From' field of first non-self message
-			for _, message := range msg {
-				if !message.FromMe {
-					displayName := mp.from_chat.Name
-					if displayName == "" {
-						displayName = mp.from_chat.ID
-					}
-					setTerminalTitle(fmt.Sprintf("Whats-CLI: %s (%s)", displayName, message.From))
-					break
-				}
-			}
-		}
-	case webhookMsg:
-		if msg.Chat.ID != mp.from_chat.ID {
-			return mp, flash(updateFlashMsg{msg:"MSG FROM " + msg.Chat.Name, count:6})
-		}
-		return mp, getMessages(msg.Chat.ID)
-	}
-	return mp, nil
 }
 
 func (mp messages_page) View() string {
@@ -410,7 +118,7 @@ func (mp messages_page) View() string {
 	}
 
 	topbarPadding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(topbarText)))
-	topbar := topbarStyle.Width(mp.container.app.width).Render(topbarText + topbarPadding)
+	topbar := styles["topbarStyle"].Width(mp.container.app.width).Render(topbarText + topbarPadding)
 	b.WriteString(topbar + "\n")
 
 	// Calculate available container.app.height for messages (total height - topbar - bottombar)
@@ -469,19 +177,19 @@ func (mp messages_page) View() string {
 		msg := " " + mp.container.app.flashMsg + " : " + fmt.Sprintf("%v", mp.container.app.flashCount)
 		bottombarPadding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(msg)))
 		if mp.container.app.flashCount%2 == 1 {
-			flashbar = errorBarStyle.Width(mp.container.app.width).Render(msg + bottombarPadding)
+			flashbar = styles["errorBarStyle"].Width(mp.container.app.width).Render(msg + bottombarPadding)
 		} else {
-			flashbar = bottombarStyle.Width(mp.container.app.width).Render(msg + bottombarPadding)
+			flashbar = styles["bottombarStyle"].Width(mp.container.app.width).Render(msg + bottombarPadding)
 		}
-	} 
+	}
 	if flashbar != "" {
-		flashbar+="\n"
+		flashbar += "\n"
 	}
 	b.WriteString(flashbar)
 	var bottombar string
 	inputText := " Message: " + mp.input
 	bottombarPadding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(inputText)))
-	bottombar = bottombarStyle.Width(mp.container.app.width).Render(inputText + bottombarPadding)
+	bottombar = styles["bottombarStyle"].Width(mp.container.app.width).Render(inputText + bottombarPadding)
 	b.WriteString(bottombar)
 	return b.String()
 }
@@ -561,7 +269,7 @@ func (mp messages_page) calculateMessageLines() []string {
 		// Apply styling to msgPrefix if it's from me (unless reply highlighted)
 		styledMsgPrefix := msgPrefix
 		if !hasReplyHighlight && !selected && msg.FromMe {
-			styledMsgPrefix = selfPrefix.Render(msgPrefix)
+			styledMsgPrefix = styles["selfPrefix"].Render(msgPrefix)
 		}
 
 		if len(wrappedLines) > 0 {
@@ -578,7 +286,7 @@ func (mp messages_page) calculateMessageLines() []string {
 						rest := firstLine[replyEndIdx+2:]               // Skip "] "
 
 						// Style the reply indicator without the trailing space
-						styledReplyIndicator := replyHighlight.Render(replyIndicatorText) + " "
+						styledReplyIndicator := styles["replyHighlight"].Render(replyIndicatorText) + " "
 
 						// Handle media in the reply indicator
 						if msg.HasMedia {
@@ -587,9 +295,9 @@ func (mp messages_page) calculateMessageLines() []string {
 							var styledParts []string
 							for i, part := range parts {
 								if i > 0 {
-									styledParts = append(styledParts, hyperlink.Render(mediaPrefix))
+									styledParts = append(styledParts, styles["hyperlink"].Render(mediaPrefix))
 								}
-								styledParts = append(styledParts, replyHighlight.Render(part))
+								styledParts = append(styledParts, styles["replyHighlight"].Render(part))
 							}
 							styledReplyIndicator = strings.Join(styledParts, "") + " "
 						}
@@ -599,12 +307,12 @@ func (mp messages_page) calculateMessageLines() []string {
 							mediaLabel := mediaPrefix
 							afterMedia := strings.TrimPrefix(rest, mediaLabel)
 							if msg.FromMe {
-								firstLine = styledReplyIndicator + hyperlink.Render(mediaLabel) + selfBody.Render(afterMedia)
+								firstLine = styledReplyIndicator + styles["hyperlink"].Render(mediaLabel) + styles["selfBody"].Render(afterMedia)
 							} else {
-								firstLine = styledReplyIndicator + hyperlink.Render(mediaLabel) + afterMedia
+								firstLine = styledReplyIndicator + styles["hyperlink"].Render(mediaLabel) + afterMedia
 							}
 						} else if msg.FromMe {
-							firstLine = styledReplyIndicator + selfBody.Render(rest)
+							firstLine = styledReplyIndicator + styles["selfBody"].Render(rest)
 						} else {
 							firstLine = styledReplyIndicator + rest
 						}
@@ -614,13 +322,13 @@ func (mp messages_page) calculateMessageLines() []string {
 					mediaLabel := mediaPrefix
 					rest := strings.TrimPrefix(firstLine, mediaLabel)
 					if msg.FromMe {
-						firstLine = hyperlink.Render(mediaLabel) + selfBody.Render(rest)
+						firstLine = styles["hyperlink"].Render(mediaLabel) + styles["selfBody"].Render(rest)
 					} else {
-						firstLine = hyperlink.Render(mediaLabel) + rest
+						firstLine = styles["hyperlink"].Render(mediaLabel) + rest
 					}
 				} else if msg.FromMe {
 					// For self messages without media or reply, apply self styling
-					firstLine = selfBody.Render(firstLine)
+					firstLine = styles["selfBody"].Render(firstLine)
 				}
 			}
 
@@ -630,7 +338,7 @@ func (mp messages_page) calculateMessageLines() []string {
 				fowardedPrefix = "[FORWARDED] "
 			}
 			if msg.IsForwarded && !hasReplyHighlight && !selected {
-				fowardedPrefix = replyHighlight.Render(fowardedPrefix)
+				fowardedPrefix = styles["replyHighlight"].Render(fowardedPrefix)
 			}
 			completeLine := fmt.Sprintf("%s%s%s%s", linePrefix, styledMsgPrefix, fowardedPrefix, firstLine)
 
@@ -638,7 +346,7 @@ func (mp messages_page) calculateMessageLines() []string {
 			if hasReplyHighlight || selected {
 				// Pad the line to full container.app.width and apply highlight
 				padding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(completeLine)))
-				completeLine = replyHighlight.Width(mp.container.app.width).Render(completeLine + padding)
+				completeLine = styles["replyHighlight"].Width(mp.container.app.width).Render(completeLine + padding)
 			}
 
 			messageLines = append(messageLines, completeLine)
@@ -650,7 +358,7 @@ func (mp messages_page) calculateMessageLines() []string {
 
 				// Apply consistent styling to continuation lines (unless reply highlighted)
 				if !hasReplyHighlight && msg.FromMe {
-					continuationLine = selfBody.Render(continuationLine)
+					continuationLine = styles["selfBody"].Render(continuationLine)
 				}
 
 				// Build complete continuation line
@@ -659,7 +367,7 @@ func (mp messages_page) calculateMessageLines() []string {
 				// Apply reply highlight to continuation lines if needed
 				if hasReplyHighlight || selected {
 					linePadding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(completeContLine)))
-					completeContLine = replyHighlight.Width(mp.container.app.width).Render(completeContLine + linePadding)
+					completeContLine = styles["replyHighlight"].Width(mp.container.app.width).Render(completeContLine + linePadding)
 				}
 
 				messageLines = append(messageLines, completeContLine)
@@ -678,7 +386,7 @@ func getMessages(chatId string) tea.Cmd {
 		defer res.Body.Close()
 		var msgs []message
 		if err := json.NewDecoder(res.Body).Decode(&msgs); err != nil {
-			msgs = append(msgs, message{Body:err.Error()})
+			msgs = append(msgs, message{Body: err.Error()})
 		}
 		return messagesLoadedMsg(msgs)
 	}
@@ -703,24 +411,23 @@ func sendMessage(chatId, text string) tea.Cmd {
 }
 
 func deleteMessage(chatId, msgId string) error {
-		c := &http.Client{}
-		req, err := http.NewRequest(
-			http.MethodDelete,
-			fmt.Sprintf("%s/client/1/message/%s", baseURL, msgId),
-			nil,
-		)
+	c := &http.Client{}
+	req, err := http.NewRequest(
+		http.MethodDelete,
+		fmt.Sprintf("%s/client/1/message/%s", baseURL, msgId),
+		nil,
+	)
 
-		if err != nil {
-			return err
-		}
-		
+	if err != nil {
+		return err
+	}
 
-		res, err := c.Do(req)
-		if err != nil {
-			return err
-		}
-		res.Body.Close()
-		return nil
+	res, err := c.Do(req)
+	if err != nil {
+		return err
+	}
+	res.Body.Close()
+	return nil
 }
 
 func sendReply(chatId, text, responseToId string) tea.Cmd {
@@ -749,7 +456,7 @@ func sendMedia(chatId, mediaPath, caption, responseToId string) tea.Cmd {
 		// Open file
 		file, err := os.Open(mediaPath)
 		if err != nil {
-			return updateFlashMsg{msg:"File not found!", count:6}
+			return updateFlashMsg{msg: "File not found!", count: 6}
 		}
 		defer file.Close()
 
@@ -819,14 +526,13 @@ func flashTick() tea.Cmd {
 	})
 }
 
-
 func flash(msg updateFlashMsg) tea.Cmd {
 	return func() tea.Msg {
 		return msg
 	}
 }
 
-func (msg * message) getMediaPrefix() string {
+func (msg *message) getMediaPrefix() string {
 	if msg.Type == "revoked" {
 		msg.HasMedia = true
 		return "[DELETED]"
@@ -837,4 +543,323 @@ func (msg * message) getMediaPrefix() string {
 		return "[MEDIA]"
 	}
 	return ""
+}
+
+func (mp *messages_page)registerLuaFuncs() {
+	L := mp.container.app.luaState
+
+	L.SetGlobal("scroll_up", L.NewFunction(func(L *lua.LState) int {
+		if mp.inInput {
+			mp.inInput = false
+			mp.selectedMsg = len(mp.messages) - 1
+			mp.scrollOffset = len(mp.messages)-mp.container.app.height+4
+		} else if mp.selectedMsg > 0 {
+			mp.selectedMsg--
+			if mp.selectedMsg < mp.scrollOffset {
+				mp.scrollOffset = mp.selectedMsg
+			}
+		}
+
+		return 0
+	}))
+
+	L.SetGlobal("scroll_down", L.NewFunction(func(L *lua.LState) int {
+		if !mp.inInput {
+			if mp.selectedMsg < len(mp.messages)-1 {
+				mp.selectedMsg++
+				avail := mp.container.app.height - 2
+				if mp.selectedMsg >= mp.scrollOffset+avail {
+					mp.scrollOffset = mp.selectedMsg - avail + 1
+				}
+			} else {
+				mp.inInput = true
+				if mp.replyingToMsg == -1 {
+					mp.scrollOffset = 0
+				}
+			}
+		}
+
+		return 0
+	}))
+
+	L.SetGlobal("escape", L.NewFunction(func(L *lua.LState) int {
+		if !mp.inInput || mp.replyingToMsg != -1 {
+			mp.replyingToMsg = -1
+			mp.replyHighlights = make(map[int]bool)
+			mp.selectedMsg = -1
+			mp.inInput = true
+			return 0
+		}
+
+		mp.container.app.luaReturn = "go_chats"
+		return 0
+	}))
+
+	L.SetGlobal("jump_to_quoted", L.NewFunction(func(L *lua.LState) int {
+		if !mp.inInput && mp.selectedMsg >= 0 && mp.selectedMsg < len(mp.messages) {
+			selected := mp.messages[mp.selectedMsg]
+			if selected.ResponseToID != "" {
+				_, idx := mp.findMessageByID(selected.ResponseToID)
+				if idx != -1 {
+					mp.selectedMsg = idx
+					height := mp.container.app.height - 2
+					if height < 1 {
+						height = 1
+					}
+					mp.scrollOffset = idx - height/2
+					if mp.scrollOffset < 0 {
+						mp.scrollOffset = 0
+					}
+					lines := mp.calculateMessageLines()
+					maxScroll := len(lines) - height
+					if mp.scrollOffset > maxScroll {
+						mp.scrollOffset = maxScroll
+					}
+					if mp.scrollOffset < 0 {
+						mp.scrollOffset = 0
+					}
+				}
+			}
+		}
+		return 0
+	}))
+
+	L.SetGlobal("toggle_reply", L.NewFunction(func(L *lua.LState) int {
+		if !mp.inInput && mp.selectedMsg >= 0 && mp.selectedMsg < len(mp.messages) {
+			if mp.replyHighlights[mp.selectedMsg] {
+				mp.replyHighlights[mp.selectedMsg] = false
+				mp.replyingToMsg = -1
+			} else {
+				mp.replyHighlights = make(map[int]bool)
+				mp.replyHighlights[mp.selectedMsg] = true
+				mp.replyingToMsg = mp.selectedMsg
+				mp.inInput = true
+			}
+		} else {
+			mp.container.app.luaReturn = "type"
+		}
+		return 0
+	}))
+
+	L.SetGlobal("open_media", L.NewFunction(func(L *lua.LState) int {
+		if !mp.inInput && mp.selectedMsg >= 0 && mp.messages[mp.selectedMsg].HasMedia {
+			mediaURL := fmt.Sprintf("%s/client/1/message/%s/media", baseURL, mp.messages[mp.selectedMsg].MsgID)
+			openURL(mediaURL)
+		} else {
+			mp.container.app.luaReturn = "type"
+		}
+		return 0
+	}))
+
+	L.SetGlobal("forward_selected", L.NewFunction(func(L *lua.LState) int {
+		if !mp.inInput && mp.selectedMsg >= 0 {
+			cp := new_chats_page(mp.container)
+			cp.forwarding.isForwarding = true
+			cp.forwarding.MsgID = mp.messages[mp.selectedMsg].MsgID
+			mp.container.page = cp
+			mp.container.commands = append(mp.container.commands, getChats())
+		} else {
+			mp.container.app.luaReturn = "type"
+		}
+
+		return 0
+	}))
+	L.SetGlobal("delete_selected", L.NewFunction(func(L *lua.LState) int {
+		if !mp.inInput && mp.selectedMsg >= 0 {
+			err := deleteMessage(mp.from_chat.ID, mp.messages[mp.selectedMsg].MsgID)
+			if err != nil {
+				mp.container.app.flashMsg = "ERROR when deleting msg"
+				mp.container.app.flashCount = 6
+			} else {
+				time.Sleep(3 * time.Second)
+				mp.container.commands = append(mp.container.commands, getMessages(mp.from_chat.ID))
+			}
+		} else {
+			mp.container.app.luaReturn = "type"
+		}
+
+		return 0
+	}))
+
+	L.SetGlobal("append_input", L.NewFunction(func(L *lua.LState) int {
+		str := L.ToString(1)
+		mp.input += str
+		return 0
+	}))
+	L.SetGlobal("backspace_input", L.NewFunction(func(L *lua.LState) int {
+		if len(mp.input) > 0 {
+			mp.input = mp.input[:len(mp.input)-1]
+		}
+		return 0
+	}))
+
+	L.SetGlobal("submit_input", L.NewFunction(func(L *lua.LState) int {
+		input := strings.TrimSpace(mp.input)
+		if input == "" {
+			return 0
+		}
+
+		var cmd tea.Cmd
+
+		// Clear input field
+		mp.input = ""
+
+		// Handle media syntax
+		if strings.HasPrefix(input, `media:"`) {
+			parts := strings.SplitN(input[len(`media:"`):], `"`, 2)
+			if len(parts) < 1 {
+				return 0
+			}
+			mediaPath := parts[0]
+			caption := ""
+			if len(parts) == 2 {
+				caption = strings.TrimSpace(parts[1])
+			}
+
+			var replyToID string
+			if mp.replyingToMsg != -1 {
+				replyToID = mp.messages[mp.replyingToMsg].MsgID
+				mp.replyHighlights = make(map[int]bool)
+				mp.replyingToMsg = -1
+			}
+
+			mp.scrollOffset = 0
+
+			cmd = sendMedia(mp.from_chat.ID, mediaPath, caption, replyToID)
+			mp.container.commands = append(mp.container.commands, cmd)
+			return 0
+		}
+
+		// Handle clipboard media
+		if strings.HasPrefix(input, "media:clipboard") {
+			caption := ""
+			parts := strings.SplitN(input, " ", 2)
+			if len(parts) > 1 {
+				caption = strings.TrimSpace(parts[1])
+			}
+
+			var replyToID string
+			if mp.replyingToMsg != -1 {
+				replyToID = mp.messages[mp.replyingToMsg].MsgID
+				mp.replyHighlights = make(map[int]bool)
+				mp.replyingToMsg = -1
+			}
+			mp.scrollOffset = 0
+
+			cmd = func() tea.Msg {
+				mediaPath, err := getClipboardMediaFile()
+				if err != nil {
+					return updateFlashMsg{msg: "Clipboard: " + err.Error(), count: 6}
+				}
+				defer os.Remove(mediaPath)
+				return sendMedia(mp.from_chat.ID, mediaPath, caption, replyToID)()
+			}
+			mp.container.commands = append(mp.container.commands, cmd)
+			return 0
+		}
+
+		// Handle reply or plain message
+		if mp.replyingToMsg != -1 && mp.replyingToMsg < len(mp.messages) {
+			replyToID := mp.messages[mp.replyingToMsg].MsgID
+			mp.replyHighlights = make(map[int]bool)
+			mp.replyingToMsg = -1
+			mp.scrollOffset = 0
+
+			cmd = sendReply(mp.from_chat.ID, input, replyToID)
+		} else {
+			cmd = sendMessage(mp.from_chat.ID, input)
+			mp.scrollOffset = 0
+		}
+
+		mp.container.commands = append(mp.container.commands, cmd)
+		return 0
+	}))
+
+	L.SetGlobal("in_input", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LBool(mp.inInput))
+		return 1
+	}))
+
+	L.SetGlobal("quit", L.NewFunction(func(L *lua.LState) int {
+		mp.container.commands = append(mp.container.commands, tea.Quit)
+		return 0
+	}))
+
+}
+
+func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	mp.registerLuaFuncs()
+	mp.container.app.luaReturn = "" // Reset Lua return value
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		key := msg.String()
+
+		// Look for Lua keybind
+		L := mp.container.app.luaState
+		luaKeyHandled := false
+
+		// Try to run keybinds[key]()
+		err := L.DoString(fmt.Sprintf(`
+			local key = %q
+			local f = message_keybinds[key]
+			if type(f) == "function" then
+				f()
+				handled = true
+			end
+		`, key))
+		if err != nil {
+			fmt.Println("Lua error:", err)
+		}
+
+		luaKeyHandled = L.GetGlobal("handled") == lua.LTrue
+		L.SetGlobal("handled", lua.LBool(false)) // reset
+		if !luaKeyHandled {
+			mp.container.app.luaReturn = "type" // No Lua keybind handled, return to input mode
+		}
+
+		if mp.container.app.luaReturn != "" {
+			switch mp.container.app.luaReturn {
+			case "type":
+				mp.input += key
+				
+			case "go_chats":
+				cp := new_chats_page(mp.container)
+				mp.container.commands = append(mp.container.commands, getChats())
+				return cp, nil
+			}
+		}
+
+		return mp, nil
+
+	case messagesLoadedMsg:
+		mp.messages = msg
+		if strings.Contains(mp.from_chat.ID, "@g.us") {
+			// Group chat
+			chatTitle := mp.from_chat.Name
+			if chatTitle == "" {
+				chatTitle = mp.from_chat.ID
+			}
+			setTerminalTitle("Whats-CLI: " + chatTitle)
+		} else if len(msg) > 0 {
+			// Private chat — get the 'From' field of first non-self message
+			for _, message := range msg {
+				if !message.FromMe {
+					displayName := mp.from_chat.Name
+					if displayName == "" {
+						displayName = mp.from_chat.ID
+					}
+					setTerminalTitle(fmt.Sprintf("Whats-CLI: %s (%s)", displayName, message.From))
+					break
+				}
+			}
+		}
+	case webhookMsg:
+		if msg.Chat.ID != mp.from_chat.ID {
+			mp.container.commands = append(mp.container.commands, flash(updateFlashMsg{msg: "MSG FROM " + msg.Chat.Name, count: 6}))
+			return mp, nil
+		}
+		mp.container.commands = append(mp.container.commands, getMessages(msg.Chat.ID))
+		return mp, nil
+	}
+	return mp, nil
 }

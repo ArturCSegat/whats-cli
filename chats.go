@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	lua "github.com/yuin/gopher-lua"
 )
 
 type chat struct {
@@ -43,10 +44,40 @@ func (cp chats_page) Init() tea.Cmd {
 	return nil
 }
 
+func (cp *chats_page) registerLuaFuncs() {
+	L := cp.container.app.luaState
+	L.SetGlobal("chat_escape", L.NewFunction(func(L *lua.LState) int {
+		cp.container.commands = append(cp.container.commands, tea.Quit)
+		return 0
+	}))
+
+	L.SetGlobal("chat_scroll_up", L.NewFunction(func(L *lua.LState) int {
+		if cp.selectedChat > 0 {
+			cp.selectedChat--
+		}
+		return 0
+	}))
+	L.SetGlobal("chat_scroll_down", L.NewFunction(func(L *lua.LState) int {
+		if cp.selectedChat < len(cp.chats)-1 {
+			cp.selectedChat++
+		}
+		return 0
+	}))
+
+	L.SetGlobal("chat_select", L.NewFunction(func(L *lua.LState) int {
+		if cp.forwarding.isForwarding {
+			forwardMsgToChat(cp.chats[cp.selectedChat].ID, cp.forwarding.MsgID)
+			time.Sleep(2 * time.Second)
+		}
+
+		cp.container.app.luaReturn = "go_messages"
+		cp.container.commands = append(cp.container.commands, getMessages(cp.chats[cp.selectedChat].ID))
+		return 0
+	}))
+}
+
 func (cp chats_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case updateAppMsg:
-		return cp, nil
 	case chatsLoadedMsg:
 		for _, c := range msg {
 			cp.container.app.id_to_name[c.ID] = c.Name
@@ -57,37 +88,43 @@ func (cp chats_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		setTerminalTitle("Whats-CLI")
 		return cp, nil
 	case tea.KeyMsg:
-		if cp.container.app.flashCount > 0 {
-			cp.container.app.flashCount = 0
-			cp.container.app.flashMsg = ""
-		}
+		cp.registerLuaFuncs()
+		cp.container.app.luaReturn = "" // Reset lua return
 		key := msg.String()
-		switch key {
-		case "ctrl+c":
-		case "esc":
-			return cp, tea.Quit
-		case "up":
-			if cp.selectedChat > 0 {
-				cp.selectedChat--
-			}
-		case "down":
-			if cp.selectedChat < len(cp.chats)-1 {
-				cp.selectedChat++
-			}
-		case "enter":
-			if cp.forwarding.isForwarding {
-				forwardMsgToChat(cp.chats[cp.selectedChat].ID, cp.forwarding.MsgID)
-				time.Sleep(2 * time.Second)
-			}
 
-			mp := new_messages_page(cp.chats[cp.selectedChat], cp.container)
-			return mp, getMessages(cp.chats[cp.selectedChat].ID)
+		// Look for Lua keybind
+		L := cp.container.app.luaState
+
+		// Try to run keybinds[key]()
+		err := L.DoString(fmt.Sprintf(`
+			local key = %q
+			local f = chat_keybinds[key]
+			if type(f) == "function" then
+				f()
+				handled = true
+			end
+		`, key))
+		if err != nil {
+			fmt.Println("Lua error:", err)
 		}
+
+
+		if cp.container.app.luaReturn != "" {
+			switch cp.container.app.luaReturn {
+			case "go_messages":
+				mp := new_messages_page(cp.chats[cp.selectedChat], cp.container)
+				cp.container.commands = append(mp.container.commands, getMessages(cp.chats[cp.selectedChat].ID))
+				return mp, nil
+			}
+		}
+
+		return cp, nil
 
 	case webhookMsg:
 		cp.container.app.flashMsg = "MSG FROM " + msg.Chat.Name
 		cp.container.app.flashCount = 6 // 3 flashes (on/off cycles)
-		return cp, tea.Batch(getChats(), flashTick())
+		cp.container.commands = append(cp.container.commands, tea.Batch(getChats(), flashTick()))
+		return cp, nil
 	}
 
 	return cp, nil
@@ -133,9 +170,9 @@ func (cp chats_page) View() string {
 			name = c.ID
 		}
 		if i == cp.selectedChat {
-			b.WriteString(fmt.Sprintf("> %s\n", selectedStyle.Render(name)))
+			b.WriteString(fmt.Sprintf("> %s\n", styles["selectedStyle"].Render(name)))
 		} else {
-			b.WriteString(fmt.Sprintf("  %s\n", unselectedStyle.Render(name)))
+			b.WriteString(fmt.Sprintf("  %s\n", styles["unselectedStyle"].Render(name)))
 		}
 	}
 	return b.String()

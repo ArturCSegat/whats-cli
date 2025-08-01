@@ -22,7 +22,8 @@ func (lp loading_page) View() string {
 }
 func (lp loading_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cp := new_chats_page(lp.container)
-	return cp, getChats()
+	lp.container.commands = append(lp.container.commands, getChats())
+	return cp, nil
 }
 func (lp loading_page) Init() tea.Cmd {
 	return nil
