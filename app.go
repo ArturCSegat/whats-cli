@@ -55,6 +55,9 @@ func initialApp() *app {
 	a.flashMsg = ""
 	a.id_to_name = make(map[string]string)
 	a.luaState = lua.NewState()
+	lua.OpenIo(a.luaState)
+	lua.OpenOs(a.luaState)
+
 	if err := a.luaState.DoFile("./lua/init.lua"); err != nil {
 		panic(fmt.Errorf("error loading init.lua: %w", err))
 	}

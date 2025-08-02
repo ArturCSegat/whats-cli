@@ -27,50 +27,50 @@ chat_keybinds = {
 	["enter"] = function() chat_select() end,
 }
 styles = {
-  selectedStyle = {
-    fg = "#880000", 
-    bold = true
-  },
+	selectedStyle = {
+		fg = "#880000",
+		bold = true
+	},
 
-  unselectedStyle = {
-    fg = "#AA00AA" -- purple
-  },
+	unselectedStyle = {
+		fg = "#AA00AA" -- purple
+	},
 
-  hyperlink = {
-    fg = "#FFFFFF",
-    bg = "#880088" -- dark purple
-  },
+	hyperlink = {
+		fg = "#FFFFFF",
+		bg = "#880088" -- dark purple
+	},
 
-  selfPrefix = {
-    fg = "#DD00DD" -- bright purple
-  },
+	selfPrefix = {
+		fg = "#DD00DD" -- bright purple
+	},
 
-  selfBody = {
-    fg = "#FFFFFF",
-    bg = "#880000", -- dark red
-    bold = true
-  },
+	selfBody = {
+		fg = "#FFFFFF",
+		bg = "#880000", -- dark red
+		bold = true
+	},
 
-  topbarStyle = {
-    fg = "#FFFFFF",
-    bg = "#880000", -- dark red
-    bold = true
-  },
+	topbarStyle = {
+		fg = "#FFFFFF",
+		bg = "#880000", -- dark red
+		bold = true
+	},
 
-  bottombarStyle = {
-    fg = "#FFFFFF",
-    bg = "#660000" -- deeper red
-  },
+	bottombarStyle = {
+		fg = "#FFFFFF",
+		bg = "#660000" -- deeper red
+	},
 
-  replyHighlight = {
-    fg = "#000000",
-    bg = "#FFFFFF"
-  },
+	replyHighlight = {
+		fg = "#000000",
+		bg = "#FFFFFF"
+	},
 
-  errorBarStyle = {
-    fg = "#FFFFFF",
-    bg = "#FF0000" -- bright red
-  }
+	errorBarStyle = {
+		fg = "#FFFFFF",
+		bg = "#FF0000" -- bright red
+	}
 }
 
 
@@ -118,5 +118,24 @@ styles = {
 --     bg = "#FF0000"
 --   }
 -- }
+--
 
+hooks = {
+	["onMsg"] = function(table)
+		if io.open then
+			print("hey")
+			local file = io.open("./lua/output.txt", "a")
 
+			if file then
+				file:write(table["body"])
+				file:write("\n")
+				file:close() -- always close the file
+			else
+				print("Failed to open file for writing.")
+			end
+		else
+			print("lol")
+		end
+	end
+
+}

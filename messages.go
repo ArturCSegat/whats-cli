@@ -832,6 +832,8 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return mp, nil
 
 	case messagesLoadedMsg:
+		mp.container.app.luaState.OpenLibs()
+		m := msg[len(msg)-1]
 		mp.messages = msg
 		if strings.Contains(mp.from_chat.ID, "@g.us") {
 			// Group chat
@@ -854,6 +856,37 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	case webhookMsg:
+		L := mp.container.app.luaState
+		luaKeyHandled := false
+
+		str, err := struct_to_lua_table(msg.Message)
+		if err != nil {
+			panic(err.Error())
+		}
+		lua_str := fmt.Sprintf(`
+			local key = %q
+			local f = hooks[key]
+			tbl = %v
+
+			if type(f) == "function" then
+				f(tbl)
+				handled = true
+			end
+		`, "onMsg", str)
+
+		err = mp.container.app.luaState.DoString(lua_str)
+		if err != nil {
+			panic("Lua error:" + err.Error() + "\n" + lua_str)
+		}
+
+		luaKeyHandled = L.GetGlobal("handled") == lua.LTrue
+		L.SetGlobal("handled", lua.LBool(false)) // reset
+
+		if !luaKeyHandled {
+			panic("unhandled hook")
+		}
+
+
 		if msg.Chat.ID != mp.from_chat.ID {
 			mp.container.commands = append(mp.container.commands, flash(updateFlashMsg{msg: "MSG FROM " + msg.Chat.Name, count: 6}))
 			return mp, nil
