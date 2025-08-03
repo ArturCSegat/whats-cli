@@ -833,7 +833,6 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case messagesLoadedMsg:
 		mp.container.app.luaState.OpenLibs()
-		m := msg[len(msg)-1]
 		mp.messages = msg
 		if strings.Contains(mp.from_chat.ID, "@g.us") {
 			// Group chat

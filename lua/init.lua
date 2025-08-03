@@ -123,18 +123,17 @@ styles = {
 hooks = {
 	["onMsg"] = function(table)
 		if io.open then
-			print("hey")
 			local file = io.open("./lua/output.txt", "a")
 
 			if file then
-				file:write(table["body"])
+				file:write("msg from(" .. table["from"] .. "): " .. table["body"])
 				file:write("\n")
-				file:close() -- always close the file
+				file:close()
 			else
 				print("Failed to open file for writing.")
 			end
 		else
-			print("lol")
+			print("Os functions unavailable")
 		end
 	end
 
