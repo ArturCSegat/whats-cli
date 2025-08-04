@@ -445,6 +445,7 @@ func (mp *messages_page) registerLuaFuncs() {
 				}
 			} else {
 				mp.inInput = true
+				mp.selectedMsg = -1
 				if mp.replyingToMsg == -1 {
 					mp.scrollOffset = 0
 				}

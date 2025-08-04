@@ -61,6 +61,9 @@ func initialApp() *app {
 	if err := a.luaState.DoFile("./lua/init.lua"); err != nil {
 		panic(fmt.Errorf("error loading init.lua: %w", err))
 	}
+	if err := a.luaState.DoFile("./lua/colors.lua"); err != nil {
+		panic(fmt.Errorf("error loading init.lua: %w", err))
+	}
 	setup_styles(a.luaState)
 
 	return a
