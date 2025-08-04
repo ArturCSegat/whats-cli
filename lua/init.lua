@@ -123,7 +123,7 @@ styles = {
 hooks = {
 	["onMsg"] = function(table)
 		if io.open then
-			local file = io.open("./lua/output.txt", "a")
+			local file = io.open("./out/output.txt", "a")
 
 			if file then
 				file:write("msg from(" .. table["from"] .. "): " .. table["body"])
@@ -137,4 +137,83 @@ hooks = {
 		end
 	end
 
+}
+
+renders = {
+	["message"] = function(msg_table)
+		local msg         = msg_table["message"]
+		local info        = msg_table["info"] or {}
+		local from        = msg["from"]
+		local body        = tostring(msg["body"] or "")
+		local fromMe      = msg["fromMe"]
+		local selected    = info["is_selected"]
+		local termWidth   = tonumber(info["width"]) or 80
+		local name        = tostring(info["name"] or "")
+		local headerSpace = tonumber(info["header_height"]) or 2 -- vertical space reserved above
+
+		-- Split message lines
+		local lines       = {}
+		for line in body:gmatch("[^\r\n]+") do
+			table.insert(lines, line)
+		end
+
+		-- Calculate content and bubble width
+		local contentWidth = 0
+		for _, line in ipairs(lines) do
+			if #line > contentWidth then contentWidth = #line end
+		end
+		local bubbleWidth = contentWidth + 4 -- 2 for padding, 2 for borders
+
+		-- Build chat bubble
+		local bubble = {}
+		table.insert(bubble, "┌" .. string.rep("─", contentWidth + 2) .. "┐")
+		for _, line in ipairs(lines) do
+			local pad = contentWidth - #line
+			table.insert(bubble, "│ " .. line .. string.rep(" ", pad) .. " │")
+		end
+		table.insert(bubble, "└" .. string.rep("─", contentWidth + 2) .. "┘")
+
+		-- Apply highlight if selected
+		if selected then
+			for i, line in ipairs(bubble) do
+				bubble[i] = "\27[30;47m" .. line .. "\27[0m"
+			end
+		end
+
+		-- Add tail
+		local tail = fromMe and "╰─▶" or "◀─╯"
+		table.insert(bubble, tail)
+
+		-- Add name above bubble if present
+		if name ~= "" then
+			local nameLine = name
+			if fromMe then
+				local namePad = termWidth - #name
+				if namePad > 0 then
+					nameLine = string.rep(" ", namePad) .. name
+				end
+			end
+			table.insert(bubble, 1, nameLine)
+		end
+
+		-- Reserve vertical space above
+		for i = 1, headerSpace do
+			table.insert(bubble, 1, "")
+		end
+
+		-- Apply right alignment (after name/space)
+		if fromMe then
+			local leftPad = termWidth - bubbleWidth
+			if leftPad < 0 then leftPad = 0 end
+			for i = headerSpace + 1, #bubble do
+				bubble[i] = string.rep(" ", leftPad) .. bubble[i]
+			end
+		end
+
+		return table.concat(bubble, "\n")
+	end,
+
+	["message1"] = function(msg_table)
+		return "from(" .. msg_table["message"]["from"] .. "): " .. msg_table["message"]["body"]
+	end,
 }

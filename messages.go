@@ -45,12 +45,14 @@ type messages_page struct {
 	messages        []message
 	selectedMsg     int
 	input           string
-	inInput         bool         // true when buffer focused
-	replyHighlights map[int]bool // tracks which messages have reply highlight
-	replyingToMsg   int          // index of message being replied to (-1 if not replying)
-	scrollOffset    int          // for scrolling through messages in select mode
+	inInput         bool
+	replyHighlights map[int]bool
+	replyingToMsg   int
+	scrollOffset    int
 	from_chat       *chat
 	container       *pageContainer
+	lines           []string
+	curr_line       int
 }
 
 func new_messages_page(chat chat, container *pageContainer) messages_page {
@@ -128,7 +130,8 @@ func (mp messages_page) View() string {
 	}
 
 	// Get all message lines
-	messageLines := mp.calculateMessageLines()
+	mp.calculateMessageLines()
+	messageLines := mp.lines
 
 	// Apply scrolling logic
 	var displayLines []string
@@ -203,12 +206,10 @@ func (mp messages_page) findMessageByID(msgID string) (message, int) {
 	return message{}, -1
 }
 
-func (mp messages_page) calculateMessageLines() []string {
+func (mp *messages_page) calculateMessageLines() {
 	var messageLines []string
-	for i, msg := range mp.messages {
-		var linePrefix string
 
-		ts := msg.Timestamp.Local().Format("15:04")
+	for i, msg := range mp.messages {
 
 		var sender_id string
 		if strings.Contains(mp.from_chat.ID, "@g.us") {
@@ -227,154 +228,12 @@ func (mp messages_page) calculateMessageLines() []string {
 			}
 		}
 
-		body := msg.Body
-		msgPrefix := "[" + ts + "] <" + sender + ">: "
-
-		// Calculate the full prefix length (line prefix + message prefix)
-		fullPrefixLength := utf8.RuneCountInString(linePrefix + msgPrefix)
-
-		// Handle reply indicator
-		var replyPrefix string
-		if msg.ResponseToID != "" {
-			// Find the original message body (now includes media indicator)
-			originalMsg, _ := mp.findMessageByID(msg.ResponseToID)
-			originalBody := originalMsg.Body
-			if originalMsg.HasMedia {
-				originalBody = originalMsg.getMediaPrefix() + originalBody
-			}
-			// Truncate original body if too long (adjust as needed)
-			if len(originalBody) > 30 {
-				originalBody = originalBody[:27] + "..."
-			}
-			replyPrefix = fmt.Sprintf("[REPLY: %s] ", originalBody)
-		}
-
-		// Handle media indicator
-		mediaPrefix := msg.getMediaPrefix()
-
-		// Combine all prefixes with the body
-		combinedPrefix := replyPrefix + mediaPrefix
-		fullBody := combinedPrefix + body
-
-		// Calculate available container.app.width for message content
-		availableWidth := mp.container.app.width - fullPrefixLength
-
-		// Wrap the message body BEFORE applying styling
-		wrappedLines := wrapText(fullBody, availableWidth)
-
-		// Check if this message has reply highlight or is being replied to
-		hasReplyHighlight := mp.replyHighlights[i] || (mp.replyingToMsg == i)
-		selected := mp.selectedMsg == i && !mp.inInput
-
-		// Apply styling to msgPrefix if it's from me (unless reply highlighted)
-		styledMsgPrefix := msgPrefix
-		if !hasReplyHighlight && !selected && msg.FromMe {
-			styledMsgPrefix = styles["selfPrefix"].Render(msgPrefix)
-		}
-
-		if len(wrappedLines) > 0 {
-			firstLine := wrappedLines[0]
-
-			// Apply styling to the first line content (unless reply highlighted)
-			if !hasReplyHighlight && !selected {
-				// Handle reply indicator styling
-				if strings.HasPrefix(firstLine, "[REPLY:") {
-					// Find the end of the reply indicator by looking for the last "] "
-					replyEndIdx := strings.LastIndex(firstLine, "] ")
-					if replyEndIdx != -1 {
-						replyIndicatorText := firstLine[:replyEndIdx+1] // Include "]" but not the space
-						rest := firstLine[replyEndIdx+2:]               // Skip "] "
-
-						// Style the reply indicator without the trailing space
-						styledReplyIndicator := styles["replyHighlight"].Render(replyIndicatorText) + " "
-
-						// Handle media in the reply indicator
-						if msg.HasMedia {
-							// Split the reply indicator to style media separately
-							parts := strings.Split(replyIndicatorText, mediaPrefix)
-							var styledParts []string
-							for i, part := range parts {
-								if i > 0 {
-									styledParts = append(styledParts, styles["hyperlink"].Render(mediaPrefix))
-								}
-								styledParts = append(styledParts, styles["replyHighlight"].Render(part))
-							}
-							styledReplyIndicator = strings.Join(styledParts, "") + " "
-						}
-
-						// Handle media and self styling for the rest
-						if strings.HasPrefix(rest, mediaPrefix) {
-							mediaLabel := mediaPrefix
-							afterMedia := strings.TrimPrefix(rest, mediaLabel)
-							if msg.FromMe {
-								firstLine = styledReplyIndicator + styles["hyperlink"].Render(mediaLabel) + styles["selfBody"].Render(afterMedia)
-							} else {
-								firstLine = styledReplyIndicator + styles["hyperlink"].Render(mediaLabel) + afterMedia
-							}
-						} else if msg.FromMe {
-							firstLine = styledReplyIndicator + styles["selfBody"].Render(rest)
-						} else {
-							firstLine = styledReplyIndicator + rest
-						}
-					}
-				} else if strings.HasPrefix(firstLine, mediaPrefix) {
-					// Handle media without reply
-					mediaLabel := mediaPrefix
-					rest := strings.TrimPrefix(firstLine, mediaLabel)
-					if msg.FromMe {
-						firstLine = styles["hyperlink"].Render(mediaLabel) + styles["selfBody"].Render(rest)
-					} else {
-						firstLine = styles["hyperlink"].Render(mediaLabel) + rest
-					}
-				} else if msg.FromMe {
-					// For self messages without media or reply, apply self styling
-					firstLine = styles["selfBody"].Render(firstLine)
-				}
-			}
-
-			// Build the complete first line
-			var fowardedPrefix string
-			if msg.IsForwarded {
-				fowardedPrefix = "[FORWARDED] "
-			}
-			if msg.IsForwarded && !hasReplyHighlight && !selected {
-				fowardedPrefix = styles["replyHighlight"].Render(fowardedPrefix)
-			}
-			completeLine := fmt.Sprintf("%s%s%s%s", linePrefix, styledMsgPrefix, fowardedPrefix, firstLine)
-
-			// Apply reply highlight to the entire line if needed
-			if hasReplyHighlight || selected {
-				// Pad the line to full container.app.width and apply highlight
-				padding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(completeLine)))
-				completeLine = styles["replyHighlight"].Width(mp.container.app.width).Render(completeLine + padding)
-			}
-
-			messageLines = append(messageLines, completeLine)
-
-			// Print continuation lines with padding and consistent styling
-			padding := strings.Repeat(" ", fullPrefixLength)
-			for j := 1; j < len(wrappedLines); j++ {
-				continuationLine := wrappedLines[j]
-
-				// Apply consistent styling to continuation lines (unless reply highlighted)
-				if !hasReplyHighlight && msg.FromMe {
-					continuationLine = styles["selfBody"].Render(continuationLine)
-				}
-
-				// Build complete continuation line
-				completeContLine := fmt.Sprintf("%s%s", padding, continuationLine)
-
-				// Apply reply highlight to continuation lines if needed
-				if hasReplyHighlight || selected {
-					linePadding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(completeContLine)))
-					completeContLine = styles["replyHighlight"].Width(mp.container.app.width).Render(completeContLine + linePadding)
-				}
-
-				messageLines = append(messageLines, completeContLine)
-			}
-		}
+		renderedLine, _ := mp.renderMsg(msg, i, sender)
+		lines := strings.Split(renderedLine, "\n")
+		messageLines = append(messageLines, lines...)
 	}
-	return messageLines
+
+	mp.lines = messageLines
 }
 
 func getMessages(chatId string) tea.Cmd {
@@ -544,32 +403,45 @@ func (msg *message) getMediaPrefix() string {
 	}
 	return ""
 }
+func (mp messages_page) getOfsset(idx int) int {
+	offset := 0
+	for i := 0; i < idx; i++ {
+		str, _ := mp.renderMsg(mp.messages[i], i, "")
+		offset += len(strings.Split(str, "\n"))
+	}
+	return offset
+}
 
-func (mp *messages_page)registerLuaFuncs() {
+func (mp *messages_page) registerLuaFuncs() {
 	L := mp.container.app.luaState
 
 	L.SetGlobal("scroll_up", L.NewFunction(func(L *lua.LState) int {
+		mp.calculateMessageLines()
 		if mp.inInput {
 			mp.inInput = false
 			mp.selectedMsg = len(mp.messages) - 1
-			mp.scrollOffset = len(mp.messages)-mp.container.app.height+4
+			mp.scrollOffset = len(mp.lines) - (mp.container.app.height - 2)
+			mp.curr_line = len(mp.lines) - 1
 		} else if mp.selectedMsg > 0 {
+			str, _ := mp.renderMsg(mp.messages[mp.selectedMsg], mp.selectedMsg, "")
+			mp.curr_line -= len(strings.Split(str, "\n")) + 1
 			mp.selectedMsg--
-			if mp.selectedMsg < mp.scrollOffset {
-				mp.scrollOffset = mp.selectedMsg
+			if mp.curr_line < mp.scrollOffset {
+				mp.scrollOffset = mp.curr_line - (mp.container.app.height - 2)
 			}
 		}
-
 		return 0
 	}))
 
 	L.SetGlobal("scroll_down", L.NewFunction(func(L *lua.LState) int {
+		mp.calculateMessageLines()
 		if !mp.inInput {
 			if mp.selectedMsg < len(mp.messages)-1 {
+				str, _ := mp.renderMsg(mp.messages[mp.selectedMsg], mp.selectedMsg, "")
+				mp.curr_line += len(strings.Split(str, "\n")) + 1
 				mp.selectedMsg++
-				avail := mp.container.app.height - 2
-				if mp.selectedMsg >= mp.scrollOffset+avail {
-					mp.scrollOffset = mp.selectedMsg - avail + 1
+				if mp.curr_line >= mp.scrollOffset+(mp.container.app.height-2) {
+					mp.scrollOffset = mp.curr_line - (mp.container.app.height - 2) + 1
 				}
 			} else {
 				mp.inInput = true
@@ -578,7 +450,6 @@ func (mp *messages_page)registerLuaFuncs() {
 				}
 			}
 		}
-
 		return 0
 	}))
 
@@ -610,7 +481,8 @@ func (mp *messages_page)registerLuaFuncs() {
 					if mp.scrollOffset < 0 {
 						mp.scrollOffset = 0
 					}
-					lines := mp.calculateMessageLines()
+					mp.calculateMessageLines()
+					lines := mp.lines
 					maxScroll := len(lines) - height
 					if mp.scrollOffset > maxScroll {
 						mp.scrollOffset = maxScroll
@@ -821,7 +693,7 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch mp.container.app.luaReturn {
 			case "type":
 				mp.input += key
-				
+
 			case "go_chats":
 				cp := new_chats_page(mp.container)
 				mp.container.commands = append(mp.container.commands, getChats())
@@ -885,7 +757,6 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			panic("unhandled hook")
 		}
 
-
 		if msg.Chat.ID != mp.from_chat.ID {
 			mp.container.commands = append(mp.container.commands, flash(updateFlashMsg{msg: "MSG FROM " + msg.Chat.Name, count: 6}))
 			return mp, nil
@@ -894,4 +765,218 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return mp, nil
 	}
 	return mp, nil
+}
+
+func (mp messages_page) renderMsg(msg message, idx int, sender string) (string, bool) {
+	L := mp.container.app.luaState
+
+	type message_to_render_info struct {
+		Is_selected bool   `json:"is_selected"`
+		Width       int    `json:"width"`
+		Height      int    `json:"height"`
+		Name        string `json:"name"`
+	}
+	type message_to_render struct {
+		Msg  message                `json:"message"`
+		Info message_to_render_info `json:"info"`
+	}
+	luaHandled := false
+	renderedLine := ""
+
+	str, err := struct_to_lua_table(
+		message_to_render{
+			Msg: msg,
+			Info: message_to_render_info{
+				Is_selected: idx == mp.selectedMsg,
+				Width:       mp.container.app.width,
+				Height:      mp.container.app.height,
+				Name:        sender,
+			},
+		})
+	if err != nil {
+		panic(err.Error())
+	}
+
+	luaScript := fmt.Sprintf(`
+			tbl = %v
+			local f = renders["message"]
+			if type(f) == "function" then
+				local ok, result = pcall(f, tbl)
+				if ok and type(result) == "string" then
+					_rendered = result
+					_handled = true
+				end
+			end
+		`, str)
+
+	err = L.DoString(luaScript)
+	if err != nil {
+		panic("Lua error: " + err.Error() + "\n" + luaScript)
+	}
+
+	if L.GetGlobal("_handled") == lua.LTrue {
+		renderedLine = L.GetGlobal("_rendered").String()
+		luaHandled = true
+	}
+
+	// Clean up Lua globals
+	L.SetGlobal("_rendered", lua.LNil)
+	L.SetGlobal("_handled", lua.LBool(false))
+
+	if luaHandled {
+		return renderedLine, true
+	}
+
+	var ret string
+	var linePrefix string
+
+	ts := msg.Timestamp.Local().Format("15:04")
+
+	body := msg.Body
+	msgPrefix := "[" + ts + "] <" + sender + ">: "
+
+	// Calculate the full prefix length (line prefix + message prefix)
+	fullPrefixLength := utf8.RuneCountInString(linePrefix + msgPrefix)
+
+	// Handle reply indicator
+	var replyPrefix string
+	if msg.ResponseToID != "" {
+		// Find the original message body (now includes media indicator)
+		originalMsg, _ := mp.findMessageByID(msg.ResponseToID)
+		originalBody := originalMsg.Body
+		if originalMsg.HasMedia {
+			originalBody = originalMsg.getMediaPrefix() + originalBody
+		}
+		// Truncate original body if too long (adjust as needed)
+		if len(originalBody) > 30 {
+			originalBody = originalBody[:27] + "..."
+		}
+		replyPrefix = fmt.Sprintf("[REPLY: %s] ", originalBody)
+	}
+
+	// Handle media indicator
+	mediaPrefix := msg.getMediaPrefix()
+
+	// Combine all prefixes with the body
+	combinedPrefix := replyPrefix + mediaPrefix
+	fullBody := combinedPrefix + body
+
+	// Calculate available container.app.width for message content
+	availableWidth := mp.container.app.width - fullPrefixLength
+
+	// Wrap the message body BEFORE applying styling
+	wrappedLines := wrapText(fullBody, availableWidth)
+
+	// Check if this message has reply highlight or is being replied to
+	hasReplyHighlight := mp.replyHighlights[idx] || (mp.replyingToMsg == idx)
+	selected := mp.selectedMsg == idx && !mp.inInput
+
+	// Apply styling to msgPrefix if it's from me (unless reply highlighted)
+	styledMsgPrefix := msgPrefix
+	if !hasReplyHighlight && !selected && msg.FromMe {
+		styledMsgPrefix = styles["selfPrefix"].Render(msgPrefix)
+	}
+
+	if len(wrappedLines) > 0 {
+		firstLine := wrappedLines[0]
+
+		// Apply styling to the first line content (unless reply highlighted)
+		if !hasReplyHighlight && !selected {
+			// Handle reply indicator styling
+			if strings.HasPrefix(firstLine, "[REPLY:") {
+				// Find the end of the reply indicator by looking for the last "] "
+				replyEndIdx := strings.LastIndex(firstLine, "] ")
+				if replyEndIdx != -1 {
+					replyIndicatorText := firstLine[:replyEndIdx+1] // Include "]" but not the space
+					rest := firstLine[replyEndIdx+2:]               // Skip "] "
+
+					// Style the reply indicator without the trailing space
+					styledReplyIndicator := styles["replyHighlight"].Render(replyIndicatorText) + " "
+
+					// Handle media in the reply indicator
+					if msg.HasMedia {
+						// Split the reply indicator to style media separately
+						parts := strings.Split(replyIndicatorText, mediaPrefix)
+						var styledParts []string
+						for i, part := range parts {
+							if i > 0 {
+								styledParts = append(styledParts, styles["hyperlink"].Render(mediaPrefix))
+							}
+							styledParts = append(styledParts, styles["replyHighlight"].Render(part))
+						}
+						styledReplyIndicator = strings.Join(styledParts, "") + " "
+					}
+
+					// Handle media and self styling for the rest
+					if strings.HasPrefix(rest, mediaPrefix) {
+						mediaLabel := mediaPrefix
+						afterMedia := strings.TrimPrefix(rest, mediaLabel)
+						if msg.FromMe {
+							firstLine = styledReplyIndicator + styles["hyperlink"].Render(mediaLabel) + styles["selfBody"].Render(afterMedia)
+						} else {
+							firstLine = styledReplyIndicator + styles["hyperlink"].Render(mediaLabel) + afterMedia
+						}
+					} else if msg.FromMe {
+						firstLine = styledReplyIndicator + styles["selfBody"].Render(rest)
+					} else {
+						firstLine = styledReplyIndicator + rest
+					}
+				}
+			} else if strings.HasPrefix(firstLine, mediaPrefix) {
+				// Handle media without reply
+				mediaLabel := mediaPrefix
+				rest := strings.TrimPrefix(firstLine, mediaLabel)
+				if msg.FromMe {
+					firstLine = styles["hyperlink"].Render(mediaLabel) + styles["selfBody"].Render(rest)
+				} else {
+					firstLine = styles["hyperlink"].Render(mediaLabel) + rest
+				}
+			} else if msg.FromMe {
+				// For self messages without media or reply, apply self styling
+				firstLine = styles["selfBody"].Render(firstLine)
+			}
+		}
+
+		// Build the complete first line
+		var fowardedPrefix string
+		if msg.IsForwarded {
+			fowardedPrefix = "[FORWARDED] "
+		}
+		if msg.IsForwarded && !hasReplyHighlight && !selected {
+			fowardedPrefix = styles["replyHighlight"].Render(fowardedPrefix)
+		}
+		completeLine := fmt.Sprintf("%s%s%s%s", linePrefix, styledMsgPrefix, fowardedPrefix, firstLine)
+
+		// Apply reply highlight to the entire line if needed
+		if hasReplyHighlight || selected {
+			// Pad the line to full container.app.width and apply highlight
+			padding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(completeLine)))
+			completeLine = styles["replyHighlight"].Width(mp.container.app.width).Render(completeLine + padding)
+		}
+
+		ret += completeLine
+
+		// Print continuation lines with padding and consistent styling
+		padding := strings.Repeat(" ", fullPrefixLength)
+		for j := 1; j < len(wrappedLines); j++ {
+			continuationLine := wrappedLines[j]
+
+			// Apply consistent styling to continuation lines (unless reply highlighted)
+			if !hasReplyHighlight && msg.FromMe {
+				continuationLine = styles["selfBody"].Render(continuationLine)
+			}
+
+			// Build complete continuation line
+			completeContLine := fmt.Sprintf("%s%s", padding, continuationLine)
+
+			// Apply reply highlight to continuation lines if needed
+			if hasReplyHighlight || selected {
+				linePadding := strings.Repeat(" ", max(0, mp.container.app.width-utf8.RuneCountInString(completeContLine)))
+				completeContLine = styles["replyHighlight"].Width(mp.container.app.width).Render(completeContLine + linePadding)
+			}
+
+			ret += "\n" + completeLine
+		}
+	}
+	return ret, false
 }

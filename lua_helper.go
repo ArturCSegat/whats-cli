@@ -2,8 +2,20 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"strings"
 )
+
+// Escape string to be a valid Lua string literal (single quotes)
+func luaEscapeString(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `'`, `\'`)
+	s = strings.ReplaceAll(s, "\n", `\n`)
+	s = strings.ReplaceAll(s, "\r", `\r`)
+	s = strings.ReplaceAll(s, "\t", `\t`)
+	return "'" + s + "'"
+}
 
 func struct_to_lua_table[T any](thing T) (string, error) {
 	bs, err := json.Marshal(thing)
@@ -11,42 +23,57 @@ func struct_to_lua_table[T any](thing T) (string, error) {
 		return "", err
 	}
 
-	var m map[string]any
+	var m interface{}
 	err = json.Unmarshal(bs, &m)
 	if err != nil {
-		v := string(bs)
-		v = strings.ReplaceAll(v, "[", "{")
-		v = strings.ReplaceAll(v, "]", "}")
-		return v, nil
+		return "", err
 	}
-	mm := make(map[string]string)
-	for key, val := range m {
-		switch val.(type) {
-		case string:
-			mm[key] = val.(string)
-		default:
-			str, err := struct_to_lua_table(val)
+
+	return toLuaValue(m)
+}
+
+// Recursively convert Go value to Lua code
+func toLuaValue(v interface{}) (string, error) {
+	switch v := v.(type) {
+	case map[string]interface{}:
+		var sb strings.Builder
+		sb.WriteString("{\n")
+		for k, val := range v {
+			valStr, err := toLuaValue(val)
 			if err != nil {
 				return "", err
 			}
-			mm[key] = str
+			sb.WriteString(fmt.Sprintf("[\"%s\"] = %s,\n", k, valStr))
 		}
-
-	}
-
-	var table strings.Builder
-	table.Write([]byte(" {\n"))
-	for key, val := range mm {
-		var val_str string
-		t := strings.Trim(val, " ")
-		if strings.HasPrefix(t, "{") || t == "false" || t == "true" {
-			val_str = val
-		} else {
-			val_str = "'" + val + "'"
+		sb.WriteString("}")
+		return sb.String(), nil
+	case []interface{}:
+		var sb strings.Builder
+		sb.WriteString("{\n")
+		for i, val := range v {
+			valStr, err := toLuaValue(val)
+			if err != nil {
+				return "", err
+			}
+			// Lua arrays use integer keys starting from 1
+			sb.WriteString(fmt.Sprintf("[%d] = %s,\n", i+1, valStr))
 		}
-
-		table.Write([]byte("[\"" + key + "\"] = " + val_str + ",\n"))
+		sb.WriteString("}")
+		return sb.String(), nil
+	case string:
+		return luaEscapeString(v), nil
+	case float64:
+		// Lua does not distinguish between int and float
+		return strconv.FormatFloat(v, 'f', -1, 64), nil
+	case bool:
+		if v {
+			return "true", nil
+		}
+		return "false", nil
+	case nil:
+		return "nil", nil
+	default:
+		return "", fmt.Errorf("unsupported type: %T", v)
 	}
-	table.Write([]byte("}\n"))
-	return table.String(), nil
 }
+
