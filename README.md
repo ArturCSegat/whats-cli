@@ -161,7 +161,7 @@ Scan the QR code with your WhatsApp app to link your account. Wait for session t
 
 ### Configuration (Optional)
 
-Configuration is done by editing the scripts in the lua folder that will be created in the same folder as the binary. Information on how to configure can be found in the [docs](https://github.com/ArturCSegat/whats-cli/blob/tree/docs)
+Configuration is done by editing the scripts in the lua folder that will be created in the same folder as the binary. Information on how to configure can be found in the [docs](https://github.com/ArturCSegat/whats-cli/tree/master/docs/configuration)
 
 ## 📚 Resources
 
