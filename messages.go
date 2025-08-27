@@ -22,7 +22,7 @@ type message struct {
 	MsgID        string          `json:"id"`
 	From         string          `json:"from"`
 	Type         string          `json:"type"`
-	GroupFrom    string          `json:"group_member_from"`
+	GroupFrom    string          `json:"groupMemberFrom"`
 	FromMe       bool            `json:"fromMe"`
 	Body         string          `json:"body"`
 	Timestamp    time.Time       `json:"timestamp"`
@@ -269,6 +269,7 @@ func sendMessage(chatId, text string) tea.Cmd {
 	}
 }
 
+
 func deleteMessage(chatId, msgId string) error {
 	c := &http.Client{}
 	req, err := http.NewRequest(
@@ -424,7 +425,7 @@ func (mp *messages_page) registerLuaFuncs() {
 			mp.curr_line = len(mp.lines) - 1
 		} else if mp.selectedMsg > 0 {
 			str, _ := mp.renderMsg(mp.messages[mp.selectedMsg], mp.selectedMsg, "")
-			mp.curr_line -= len(strings.Split(str, "\n")) + 1
+			mp.curr_line -= (len(strings.Split(str, "\n")) + 1)
 			mp.selectedMsg--
 			if mp.curr_line < mp.scrollOffset {
 				mp.scrollOffset = mp.curr_line - (mp.container.app.height - 2)

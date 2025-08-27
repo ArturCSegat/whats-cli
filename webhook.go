@@ -25,7 +25,7 @@ type webhookMsg struct {
 	Message struct {
 		ID              string    `json:"id"`
 		From            string    `json:"from"`
-		GroupMemberFrom *string   `json:"group_member_from"` // use *string for possible `undefined` (null)
+		GroupMemberFrom *string   `json:"groupMemberFrom"` // use *string for possible `undefined` (null)
 		FromMe          bool      `json:"fromMe"`
 		Body            string    `json:"body"`
 		Timestamp       time.Time `json:"timestamp"`
