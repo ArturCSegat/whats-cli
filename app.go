@@ -57,12 +57,16 @@ func initialApp() *app {
 	a.luaState = lua.NewState()
 	lua.OpenIo(a.luaState)
 	lua.OpenOs(a.luaState)
+	luaPath, err := ensureLuaPath()
+	if err != err {
+		panic("could not find lua path")
+	}
 
-	if err := a.luaState.DoFile("./lua/init.lua"); err != nil {
+	if err := a.luaState.DoFile(luaPath + "/init.lua"); err != nil {
 		panic(fmt.Errorf("error loading init.lua: %w", err))
 	}
-	if err := a.luaState.DoFile("./lua/colors.lua"); err != nil {
-		panic(fmt.Errorf("error loading init.lua: %w", err))
+	if err := a.luaState.DoFile(luaPath + "/colors.lua"); err != nil {
+		panic(fmt.Errorf("error loading colors.lua: %w", err))
 	}
 	setup_styles(a.luaState)
 

@@ -808,7 +808,9 @@ func (mp messages_page) renderMsg(msg message, idx int, sender string) (string, 
 					_rendered = result
 					_handled = true
 				end
+				_rendered = result
 			end
+			_handled = true
 		`, str)
 
 	err = L.DoString(luaScript)

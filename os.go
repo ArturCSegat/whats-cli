@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
+	"path/filepath"
 	"os"
 	"os/exec"
 	"runtime"
@@ -173,3 +174,219 @@ end try`)
 		return "", fmt.Errorf("no image or file in clipboard (try wl-paste/xclip/xsel)")
 	}
 }
+
+func ensureLuaPath() (string, error) {
+	// Ensure the Lua scripts directory exists on the same folder as the binary (lua/init.lua)
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("failed to get executable path: %w", err)
+	}
+	exeDir := filepath.Dir(exePath)
+	luaDir := filepath.Join(exeDir, "lua")
+
+	if err := os.MkdirAll(luaDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create lua directory: %w", err)
+	}
+
+	initLuaPath := filepath.Join(luaDir, "init.lua")
+	if _, err := os.Stat(initLuaPath); os.IsNotExist(err) {
+		if err := os.WriteFile(initLuaPath, []byte(defaultInitLua), 0644); err != nil {
+			return "", fmt.Errorf("failed to write default init.lua: %w", err)
+		}
+	}
+
+	colorsLuaPath := filepath.Join(luaDir, "colors.lua")
+	if _, err := os.Stat(colorsLuaPath); os.IsNotExist(err) {
+		if err := os.WriteFile(colorsLuaPath, []byte(defaultColorsLua), 0644); err != nil {
+			return "", fmt.Errorf("failed to write default colors.lua: %w", err)
+		}
+	}
+
+	return luaDir, nil
+}
+
+
+var defaultInitLua = `
+message_keybinds = {
+	["up"] = function() scroll_up() end,
+	["down"] = function() scroll_down() end,
+	["ctrl+c"] = function() quit() end,
+	["esc"] = function() escape() end,
+	["enter"] = function()
+		if in_input() then
+			submit_input()
+		else
+			jump_to_quoted()
+		end
+	end,
+	["backspace"] = function() backspace_input() end,
+	["r"] = function() toggle_reply() end,
+	["m"] = function() open_media() end,
+	["f"] = function() forward_selected() end,
+	["d"] = function() delete_selected() end,
+}
+
+chat_keybinds = {
+	["up"] = function() chat_scroll_up() end,
+	["down"] = function() chat_scroll_down() end,
+	["k"] = function() chat_scroll_up() end,
+	["j"] = function() chat_scroll_down() end,
+	["ctrl+c"] = function() chat_escape() end,
+	["esc"] = function() chat_escape() end,
+	["enter"] = function() chat_select() end,
+}
+
+renders = {
+	["message"] = function(msg_table)
+		local msg         = msg_table["message"]
+		local info        = msg_table["info"] or {}
+		local from        = msg["from"]
+		local body        = tostring(msg["body"] or "")
+		local fromMe      = msg["fromMe"]
+		local selected    = info["is_selected"]
+		local termWidth   = tonumber(info["width"]) or 80
+		local name        = tostring(info["name"] or "")
+		local headerSpace = tonumber(info["header_height"]) or 2
+
+		local lines       = {}
+		for line in body:gmatch("[^\r\n]+") do
+			table.insert(lines, line)
+		end
+
+		local contentWidth = 0
+		for _, line in ipairs(lines) do
+			if #line > contentWidth then contentWidth = #line end
+		end
+		local bubbleWidth = contentWidth + 4
+
+		local bubble = {}
+		table.insert(bubble, "┌" .. string.rep("─", contentWidth + 2) .. "┐")
+		for _, line in ipairs(lines) do
+			local pad = contentWidth - #line
+			table.insert(bubble, "│ " .. line .. string.rep(" ", pad) .. " │")
+		end
+		table.insert(bubble, "└" .. string.rep("─", contentWidth + 2) .. "┘")
+
+		-- Apply self color if fromMe
+		if fromMe and styles.selfBody and styles.selfBody.fg then
+			local colorPrefix = fg(styles.selfBody.fg)
+			local colorSuffix = reset()
+			for i, line in ipairs(bubble) do
+				bubble[i] = colorPrefix .. line .. colorSuffix
+			end
+		end
+
+		-- Apply highlight if selected
+		if selected then
+			for i, line in ipairs(bubble) do
+				bubble[i] = "\27[30;47m" .. line .. "\27[0m"
+			end
+		end
+
+		local tail = fromMe and "╰─▶" or "◀─╯"
+		if fromMe and styles.selfBody and styles.selfBody.fg then
+			tail = fg(styles.selfBody.fg) .. tail .. reset()
+		end
+		table.insert(bubble, tail)
+
+		if name ~= "" then
+			local nameLine = name
+			if fromMe then
+				local namePad = termWidth - #name
+				if namePad > 0 then
+					nameLine = string.rep(" ", namePad) .. name
+				end
+			end
+			table.insert(bubble, 1, nameLine)
+		end
+
+		for i = 1, headerSpace do
+			table.insert(bubble, 1, "")
+		end
+
+		if fromMe then
+			local leftPad = termWidth - bubbleWidth
+			if leftPad < 0 then leftPad = 0 end
+			for i = headerSpace + 1, #bubble do
+				bubble[i] = string.rep(" ", leftPad) .. bubble[i]
+			end
+		end
+
+		return table.concat(bubble, "\n")
+	end,
+}
+`
+
+
+var defaultColorsLua = `
+
+local function hex_to_rgb(hex)
+	local r, g, b = hex:match("#?(%x%x)(%x%x)(%x%x)")
+	return tonumber(r, 16), tonumber(g, 16), tonumber(b, 16)
+end
+
+function fg(hex)
+	local r, g, b = hex_to_rgb(hex)
+	return ("\27[38;2;%d;%d;%dm"):format(r, g, b)
+end
+
+function bg(hex)
+	local r, g, b = hex_to_rgb(hex)
+	return ("\27[48;2;%d;%d;%dm"):format(r, g, b)
+end
+
+function reset()
+	return "\27[0m"
+end
+
+function invert_colors(text)
+	return "\27[7m" .. text .. "\27[0m"
+end
+
+
+
+styles = {
+  selectedStyle = {
+    fg = "10",
+    bold = true
+  },
+
+  unselectedStyle = {
+    fg = "8"
+  },
+
+  hyperlink = {
+    fg = "#FFFFFF",
+    bg = "#0000FF"
+  },
+
+  selfPrefix = {
+    fg = "10"
+  },
+
+  selfBody = {
+    fg = "#7FFF7F"
+  },
+
+  topbarStyke = {
+    fg = "15",
+    bg = "8",
+    bold = true
+  },
+
+  bottombarStyle = {
+    fg = "15",
+    bg = "8"
+  },
+
+  replyHighlight = {
+    fg = "#000000",
+    bg = "#FFFFFF"
+  },
+
+  errorBarStyle = {
+    fg = "#FFFFFF",
+    bg = "#FF0000"
+  }
+}
+`

@@ -15,6 +15,7 @@ message_keybinds = {
 	["m"] = function() open_media() end,
 	["f"] = function() forward_selected() end,
 	["d"] = function() delete_selected() end,
+	["ctrl+a"] = function() append_input("porrafodase") end,
 }
 
 chat_keybinds = {
@@ -27,27 +28,27 @@ chat_keybinds = {
 	["enter"] = function() chat_select() end,
 }
 
-hooks = {
-	["onMsg"] = function(table)
-		if io.open then
-			local file = io.open("./out/output.txt", "a")
-
-			if file then
-				file:write("msg from(" .. table["from"] .. "): " .. table["body"])
-				file:write("\n")
-				file:close()
-			else
-				print("Failed to open file for writing.")
-			end
-		else
-			print("Os functions unavailable")
-		end
-	end
-
-}
+-- hooks = {
+-- 	["onMsg"] = function(table)
+-- 		if io.open then
+-- 			local file = io.open("./out/output.txt", "a")
+--
+-- 			if file then
+-- 				file:write("msg from(" .. table["from"] .. "): " .. table["body"])
+-- 				file:write("\n")
+-- 				file:close()
+-- 			else
+-- 				print("Failed to open file for writing.")
+-- 			end
+-- 		else
+-- 			print("Os functions unavailable")
+-- 		end
+-- 	end
+--
+-- }
 
 renders = {
-	["message"] = function(msg_table)
+	["message1"] = function(msg_table)
 		local msg         = msg_table["message"]
 		local info        = msg_table["info"] or {}
 		local body        = tostring(msg["body"] or "")
@@ -131,7 +132,7 @@ renders = {
 		return table.concat(bubble, "\n")
 	end,
 
-	["message1"] = function(msg_table)
+	["message"] = function(msg_table)
 		local msg         = msg_table["message"]
 		local info        = msg_table["info"] or {}
 		local from        = msg["from"]
