@@ -19,6 +19,8 @@
   <img src="https://img.shields.io/badge/Docker-ready-blue?logo=docker" />
 </p>
 
+A command-line WhatsApp client written in Go and highly riceable with Lua scripts
+
 ---
 
 ## 📥 Download Binaries (if not building from source)
@@ -159,7 +161,7 @@ Scan the QR code with your WhatsApp app to link your account. Wait for session t
 
 ### Configuration (Optional)
 
-Configuration is done by editing the scripts in the lua folder that will be created in the same folder as the binary. Information on how to configure can be found in the [docs]()
+Configuration is done by editing the scripts in the lua folder that will be created in the same folder as the binary. Information on how to configure can be found in the [docs](https://github.com/ArturCSegat/whats-cli/blob/tree/docs)
 
 ## 📚 Resources
 
