@@ -5,41 +5,30 @@ on:
     tags:
       - "v*.*.*"
 
-jobs:
-  build:
-    name: Build and Release
-    runs-on: ubuntu-latest
+permissions:
+    contents: write
+    packages: write
 
+jobs:
+  releases-matrix:
+    name: Release Go Binary
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [linux, darwin, windows]
-        goarch: [amd64]
-        include:
-          - goos: linux
-            ext: ""
-          - goos: darwin
-            ext: ""
-          - goos: windows
-            ext: ".exe"
-
+        # build and publish in parallel: linux/386, linux/amd64, linux/arm64, windows/386, windows/amd64, darwin/amd64, darwin/arm64
+        goos: [linux, windows, darwin]
+        goarch: ["386", amd64, arm64]
+        exclude:
+          - goarch: "386"
+            goos: darwin
+          - goarch: arm64
+            goos: windows
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: "1.24.5"
-
-      - name: Build binary
-        run: |
-          mkdir -p build
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o build/whats-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} .
-
-      - name: Upload Release Asset
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
-        with:
-          files: build/whats-cli-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@v4
+    - uses: wangyoucao577/go-release-action@v1
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        goos: ${{ matrix.goos }}
+        goarch: ${{ matrix.goarch }}
+        goversion: "https://dl.google.com/go/go1.24.5.linux-amd64.tar.gz"
+        binary_name: "whats-cli"
