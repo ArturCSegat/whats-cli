@@ -11,12 +11,19 @@ import (
 	lua "github.com/yuin/gopher-lua"
 )
 
-type chat struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+type Chat struct {
+		ID             string `json:"id"`
+		Name           string `json:"name"`
+		UnreadCount    int    `json:"unreadCount"`
+		LastMessage    string `json:"lastMessageBody"`
+		IsArchived     bool   `json:"isArchived"`
+		IsGroup        bool   `json:"isGroup"`
+		IsMuted        bool   `json:"isMuted"`
+		IsReadOnly     bool   `json:"isReadOnly"`
+		IsPinned       bool   `json:"isPinned"`
 }
 type chats_page struct {
-	chats        []chat
+	chats        []Chat
 	selectedChat int
 	scrollOffset int
 	container    *pageContainer
@@ -26,7 +33,7 @@ type chats_page struct {
 	}
 }
 
-type chatsLoadedMsg []chat
+type chatsLoadedMsg []Chat
 
 func new_chats_page(container *pageContainer) chats_page {
 	if container == nil {
@@ -132,7 +139,7 @@ func (cp chats_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (cp chats_page) View() string {
 	var b strings.Builder
-	b.WriteString("Chats (↑ ↓ to navigate, Enter to open, Ctrl+C to quit):\n\n")
+	b.WriteString("Chats:\n\n")
 
 	if len(cp.chats) < 1 {
 		b.WriteString("Loading chats...")
@@ -169,13 +176,69 @@ func (cp chats_page) View() string {
 		if name == "" {
 			name = c.ID
 		}
-		if i == cp.selectedChat {
-			b.WriteString(fmt.Sprintf("> %s\n", styles["selectedStyle"].Render(name)))
-		} else {
-			b.WriteString(fmt.Sprintf("  %s\n", styles["unselectedStyle"].Render(name)))
-		}
+		b.WriteString(cp.renderChat(c, i))
 	}
 	return b.String()
+}
+
+func (cp *chats_page) renderChat(chat Chat, idx int) string {
+	L := cp.container.app.luaState
+	type chat_to_render_info struct {
+		Is_selected bool   `json:"is_selected"`
+		Width       int    `json:"width"`
+		Height      int    `json:"height"`
+	}
+
+	type chat_to_render struct {
+		Info chat_to_render_info `json:"info"`
+		Chat Chat               `json:"chat"`
+	}
+
+
+	str, err := struct_to_lua_table(
+		chat_to_render{
+			chat_to_render_info{Is_selected: idx == cp.selectedChat, Width: cp.container.app.width, Height: cp.container.app.height},
+			chat,
+		},
+	)
+	var renderedLine string
+	var luaHandled bool
+	if err != nil {
+		panic(err.Error())
+	}
+	luaScript := fmt.Sprintf(`
+			tbl = %v
+			local f = renders["chat"]
+			if type(f) == "function" then
+				local ok, result = pcall(f, tbl)
+				if ok and type(result) == "string" then
+					_rendered = result
+					_handled = true
+				end
+			end
+		`, str)
+
+	err = L.DoString(luaScript)
+	if err != nil {
+		panic("Lua error: " + err.Error() + "\n" + luaScript)
+	}
+
+	if L.GetGlobal("_handled") == lua.LTrue {
+		renderedLine = L.GetGlobal("_rendered").String()
+		luaHandled = true
+	}
+
+	// Clean up Lua globals
+	L.SetGlobal("_rendered", lua.LNil)
+	L.SetGlobal("_handled", lua.LBool(false))
+
+	if luaHandled {
+		return renderedLine
+	}
+	if idx == cp.selectedChat {
+		return fmt.Sprintf("> %s\n", styles["selectedStyle"].Render(chat.Name))
+	}
+	return fmt.Sprintf("  %s\n", styles["unselectedStyle"].Render(chat.Name))
 }
 
 func forwardMsgToChat(chatID string, msgID string) {
@@ -196,7 +259,7 @@ func getChats() tea.Cmd {
 			return err
 		}
 		defer res.Body.Close()
-		var chats []chat
+		var chats []Chat
 		if err := json.NewDecoder(res.Body).Decode(&chats); err != nil {
 			return err
 		}

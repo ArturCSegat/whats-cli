@@ -13,10 +13,10 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-81.8%25-blue?logo=go" />
-  <img src="https://img.shields.io/badge/Lua-18.2%25-lightgrey?logo=lua" />
-  <img src="https://img.shields.io/badge/TypeScript-backend-blue?logo=typescript" />
-  <img src="https://img.shields.io/badge/Docker-ready-blue?logo=docker" />
+  <img src="https://img.shields.io/badge/Go25-blue?logo=go" />
+  <img src="https://img.shields.io/badge/Lua25-lightgrey?logo=lua" />
+  <img src="https://img.shields.io/badge/TypeScript-blue?logo=typescript" />
+  <img src="https://img.shields.io/badge/Docker-blue?logo=docker" />
 </p>
 
 A command-line WhatsApp client written in Go and highly riceable with Lua scripts

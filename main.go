@@ -18,6 +18,12 @@ func max(a, b int) int {
 }
 
 func main() {
+	err := validateBackend();
+	if err != nil {
+		fmt.Println("Error:", err)
+		os.Exit(1)
+	}
+
 	cmdChan := make(chan tea.Msg, 10)
 	startWebhookListener(cmdChan)
 

@@ -2,10 +2,14 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+
 	// "fmt"
 	"log"
 	"net/http"
 	"time"
+
 	tea "github.com/charmbracelet/bubbletea"
 )
 
@@ -64,4 +68,28 @@ func startWebhookListener(cmdChan chan tea.Msg) {
 	}()
 }
 
-
+func validateBackend() error {
+	resp, err := http.Get(baseURL + "/client/1")
+	if err != nil {
+		err = errors.New(fmt.Sprintf("Failed to connect to backend at %s: %v", baseURL, err))
+		return err
+	}
+	type client struct {
+		ClientId string `json:"clientId"`
+		Name string `json:"name"`
+		Ready bool `json:"ready"`
+		Qr string `json:"qr"` // base64 image data
+		WebHook string `json:"webHook"`
+	}
+	var c client
+	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
+		err = errors.New(fmt.Sprintf("Failed to decode backend response: %v", err))
+		return err
+	}
+	
+	if !c.Ready {
+		err = errors.New("Backend client is not ready. Please ensure WhatsApp is connected.")
+		return err
+	}
+	return nil
+}

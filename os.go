@@ -248,6 +248,32 @@ renders = {
 		local name        = tostring(info["name"] or "")
 		local headerSpace = tonumber(info["header_height"]) or 2
 
+		if msg["hasMedia"] then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[MEDIA]" .. reset() .. "\n" ..  body
+		end
+		if msg["type"] == "revoked" then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg).. "[DELETED]" .. reset()
+		end
+		if msg["type"] == "ciphertext" then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[VIS ONCE]".. reset()
+		end
+		-- check if type not in list of types
+		local types = {
+			["chat"]=true,
+			["image"]=true,
+			["video"]=true,
+			["audio"]=true,
+			["voice"]=true,
+			["document"]=true,
+			["sticker"]=true,
+			["contact"]=true,
+			["revoked"]=true,
+			["ciphertext"]=true,
+		}
+		if not types[msg['type']] then
+			body =  "msg of type(" .. tostring(msg['type']) .. ") is not properly displayed"
+		end
+
 		local lines       = {}
 		for line in body:gmatch("[^\r\n]+") do
 			table.insert(lines, line)
@@ -255,6 +281,7 @@ renders = {
 
 		local contentWidth = 0
 		for _, line in ipairs(lines) do
+			line = strip_ansi(line)
 			if #line > contentWidth then contentWidth = #line end
 		end
 		local bubbleWidth = contentWidth + 4
@@ -262,7 +289,7 @@ renders = {
 		local bubble = {}
 		table.insert(bubble, "┌" .. string.rep("─", contentWidth + 2) .. "┐")
 		for _, line in ipairs(lines) do
-			local pad = contentWidth - #line
+			local pad = contentWidth - #strip_ansi(line)
 			table.insert(bubble, "│ " .. line .. string.rep(" ", pad) .. " │")
 		end
 		table.insert(bubble, "└" .. string.rep("─", contentWidth + 2) .. "┘")
@@ -279,7 +306,7 @@ renders = {
 		-- Apply highlight if selected
 		if selected then
 			for i, line in ipairs(bubble) do
-				bubble[i] = "\27[30;47m" .. line .. "\27[0m"
+				bubble[i] = "\27[30;47m" .. strip_ansi(line) .. "\27[0m"
 			end
 		end
 
@@ -314,11 +341,29 @@ renders = {
 
 		return table.concat(bubble, "\n")
 	end,
+
+	["chat"] = function (tbl)
+		if tbl['info']['is_selected'] then
+			return fg(styles.selectedStyle.fg) ..  "> " .. tbl['chat']['name'] .. reset() .. "\n"
+		end
+		return fg(styles.unselectedStyle.fg) ..  "  " .. tbl['chat']['name'] .. reset() .. "\n"
+	end
 }
 `
 
 
 var defaultColorsLua = `
+function strip_ansi(str)
+  -- Remove ANSI escape sequences
+  str = str:gsub('\27%[[%d;?]*[ -/]*[@-~]', '') -- CSI sequences
+  str = str:gsub('\27%][^%a]*%a', '')           -- OSC sequences (simplified)
+  str = str:gsub('\27%]%d+;.-\7', '')           -- OSC terminated by BEL
+  str = str:gsub('\27%]%d+;.-\27\\', '')        -- OSC terminated by ST (ESC\)
+  str = str:gsub('\27[PX^_].-\27\\', '')        -- DCS, SOS, PM, APC sequences
+  return str
+end
+
+
 
 local function hex_to_rgb(hex)
 	local r, g, b = hex:match("#?(%x%x)(%x%x)(%x%x)")
@@ -339,7 +384,15 @@ function reset()
 	return "\27[0m"
 end
 
-function invert_colors(text)
+function fg_rgb(r, g, b)
+	return ("\27[38;2;%d;%d;%dm"):format(r, g, b)
+end
+
+function bg_rgb(r,g,b)
+	return ("\27[48;2;%d;%d;%dm"):format(r, g, b)
+end
+
+function invert_colors_of_text(text)
 	return "\27[7m" .. text .. "\27[0m"
 end
 
@@ -347,12 +400,12 @@ end
 
 styles = {
   selectedStyle = {
-    fg = "10",
+    fg = "#008000",
     bold = true
   },
 
   unselectedStyle = {
-    fg = "8"
+    fg = "#808080" -- was "8"
   },
 
   hyperlink = {
@@ -361,7 +414,7 @@ styles = {
   },
 
   selfPrefix = {
-    fg = "10"
+    fg = "#00FF00" -- was "10"
   },
 
   selfBody = {
@@ -369,14 +422,14 @@ styles = {
   },
 
   topbarStyke = {
-    fg = "15",
-    bg = "8",
+    fg = "#FFFFFF", -- was "15"
+    bg = "#808080", -- was "8"
     bold = true
   },
 
   bottombarStyle = {
-    fg = "15",
-    bg = "8"
+    fg = "#FFFFFF", -- was "15"
+    bg = "#808080" -- was "8"
   },
 
   replyHighlight = {
@@ -388,5 +441,5 @@ styles = {
     fg = "#FFFFFF",
     bg = "#FF0000"
   }
-}
+}--
 `

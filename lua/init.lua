@@ -15,7 +15,7 @@ message_keybinds = {
 	["m"] = function() open_media() end,
 	["f"] = function() forward_selected() end,
 	["d"] = function() delete_selected() end,
-	["ctrl+a"] = function() append_input("porrafodase") end,
+	["ctrl+a"] = function() append_input(input_content()) end,
 }
 
 chat_keybinds = {
@@ -58,6 +58,32 @@ renders = {
 		local termWidth   = tonumber(info["width"]) or 80
 		local headerSpace = tonumber(info["header_height"]) or 1
 
+		if msg["hasMedia"] then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[MEDIA]" .. reset() .. "\n" ..  body
+		end
+		if msg["type"] == "revoked" then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg).. "[DELETED]" .. reset()
+		end
+		if msg["type"] == "ciphertext" then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[VIS ONCE]".. reset()
+		end
+		-- check if type not in list of types
+		local types = {
+			["chat"]=true,
+			["image"]=true,
+			["video"]=true,
+			["audio"]=true,
+			["voice"]=true,
+			["document"]=true,
+			["sticker"]=true,
+			["contact"]=true,
+			["revoked"]=true,
+			["ciphertext"]=true,
+		}
+		if not types[msg['type']] then
+			body =  "msg of type(" .. tostring(msg['type']) .. ") is not properly displayed"
+		end
+
 		-- Split lines
 		local lines       = {}
 		for line in body:gmatch("[^\r\n]+") do
@@ -67,6 +93,7 @@ renders = {
 		-- Measure max line width
 		local contentWidth = 0
 		for _, line in ipairs(lines) do
+			line = strip_ansi(line)
 			if #line > contentWidth then contentWidth = #line end
 		end
 
@@ -92,7 +119,7 @@ renders = {
 		local topBorderContent = "┌" ..
 		string.rep("─", leftLineLen) .. name .. string.rep("─", rightLineLen) .. "┐"
 		if selected then
-			topBorderContent = invert_colors(colorStart .. topBorderContent .. colorReset)
+			topBorderContent = invert_colors_of_text(colorStart .. topBorderContent .. colorReset)
 		else
 			topBorderContent = colorStart .. topBorderContent .. colorReset
 		end
@@ -103,12 +130,12 @@ renders = {
 		table.insert(bubble, topBorder)
 
 		for _, line in ipairs(lines) do
-			local padding = boxWidth - #line - 4
+			local padding = boxWidth - #strip_ansi(line) - 4
 			local leftSpace = math.floor(padding / 2)
 			local rightSpace = padding - leftSpace
-			local content = "│ " .. string.rep(" ", leftSpace) .. line .. string.rep(" ", rightSpace) .. " │"
+			local content = "│ " .. string.rep(" ", leftSpace) .. line .. string.rep(" ", rightSpace) .. fg(outlineColor) .. " │" ..reset()
 			if selected then
-				content = invert_colors(colorStart .. content .. colorReset)
+				content = invert_colors_of_text(colorStart .. strip_ansi(content) .. colorReset)
 			else
 				content = colorStart .. content .. colorReset
 			end
@@ -118,7 +145,7 @@ renders = {
 		-- Bottom border
 		local bottomBorderContent = "└" .. string.rep("─", boxWidth - 2) .. "┘"
 		if selected then
-			bottomBorderContent = invert_colors(colorStart .. bottomBorderContent .. colorReset)
+			bottomBorderContent = invert_colors_of_text(colorStart .. bottomBorderContent .. colorReset)
 		else
 			bottomBorderContent = colorStart .. bottomBorderContent .. colorReset
 		end
@@ -143,6 +170,32 @@ renders = {
 		local name        = tostring(info["name"] or "")
 		local headerSpace = tonumber(info["header_height"]) or 2
 
+		if msg["hasMedia"] then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[MEDIA]" .. reset() .. "\n" ..  body
+		end
+		if msg["type"] == "revoked" then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg).. "[DELETED]" .. reset()
+		end
+		if msg["type"] == "ciphertext" then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[VIS ONCE]".. reset()
+		end
+		-- check if type not in list of types
+		local types = {
+			["chat"]=true,
+			["image"]=true,
+			["video"]=true,
+			["audio"]=true,
+			["voice"]=true,
+			["document"]=true,
+			["sticker"]=true,
+			["contact"]=true,
+			["revoked"]=true,
+			["ciphertext"]=true,
+		}
+		if not types[msg['type']] then
+			body =  "msg of type(" .. tostring(msg['type']) .. ") is not properly displayed"
+		end
+
 		local lines       = {}
 		for line in body:gmatch("[^\r\n]+") do
 			table.insert(lines, line)
@@ -150,6 +203,7 @@ renders = {
 
 		local contentWidth = 0
 		for _, line in ipairs(lines) do
+			line = strip_ansi(line)
 			if #line > contentWidth then contentWidth = #line end
 		end
 		local bubbleWidth = contentWidth + 4
@@ -157,7 +211,7 @@ renders = {
 		local bubble = {}
 		table.insert(bubble, "┌" .. string.rep("─", contentWidth + 2) .. "┐")
 		for _, line in ipairs(lines) do
-			local pad = contentWidth - #line
+			local pad = contentWidth - #strip_ansi(line)
 			table.insert(bubble, "│ " .. line .. string.rep(" ", pad) .. " │")
 		end
 		table.insert(bubble, "└" .. string.rep("─", contentWidth + 2) .. "┘")
@@ -174,7 +228,7 @@ renders = {
 		-- Apply highlight if selected
 		if selected then
 			for i, line in ipairs(bubble) do
-				bubble[i] = "\27[30;47m" .. line .. "\27[0m"
+				bubble[i] = "\27[30;47m" .. strip_ansi(line) .. "\27[0m"
 			end
 		end
 
@@ -294,6 +348,32 @@ renders = {
 		local termWidth   = tonumber(info["width"]) or 80
 		local headerSpace = tonumber(info["header_height"]) or 1
 
+		if msg["hasMedia"] then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[MEDIA]" .. reset() .. "\n" ..  body
+		end
+		if msg["type"] == "revoked" then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg).. "[DELETED]" .. reset()
+		end
+		if msg["type"] == "ciphertext" then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[VIS ONCE]".. reset()
+		end
+		-- check if type not in list of types
+		local types = {
+			["chat"]=true,
+			["image"]=true,
+			["video"]=true,
+			["audio"]=true,
+			["voice"]=true,
+			["document"]=true,
+			["sticker"]=true,
+			["contact"]=true,
+			["revoked"]=true,
+			["ciphertext"]=true,
+		}
+		if not types[msg['type']] then
+			body =  "msg of type(" .. tostring(msg['type']) .. ") is not properly displayed"
+		end
+
 		local lines       = {}
 		for line in body:gmatch("[^\r\n]+") do
 			table.insert(lines, line)
@@ -329,7 +409,21 @@ renders = {
 				output[i] = blockBg .. blockFg .. b .. line .. reset()
 			end
 		end
+		if selected then
+			for i, line in ipairs(output) do
+				if  i ~= 1 and i ~= 2 then
+					output[i] = "\27[30;47m" .. line .. "\27[0m"
+				end
+			end
+		end
 
 		return table.concat(output, "\n")
+	end,
+
+	["chat"] = function (tbl)
+		if tbl['info']['is_selected'] then
+			return fg(styles.selectedStyle.fg) ..  "> " .. tbl['chat']['name'] .. reset() .. "\n"
+		end
+		return fg(styles.unselectedStyle.fg) ..  "  " .. tbl['chat']['name'] .. reset() .. "\n"
 	end
 }

@@ -49,13 +49,13 @@ type messages_page struct {
 	replyHighlights map[int]bool
 	replyingToMsg   int
 	scrollOffset    int
-	from_chat       *chat
+	from_chat       *Chat
 	container       *pageContainer
 	lines           []string
 	curr_line       int
 }
 
-func new_messages_page(chat chat, container *pageContainer) messages_page {
+func new_messages_page(chat Chat, container *pageContainer) messages_page {
 	if container == nil {
 		panic("passed nil container")
 	}
@@ -87,12 +87,12 @@ func (mp messages_page) View() string {
 				topbarText = fmt.Sprintf(" Replying to \"%s\" (ID: %s)", msg.Body, msg.MsgID)
 			} else {
 				msg := mp.messages[mp.selectedMsg]
-				actionText := "R to reply"
+				actionText := "actions: reply"
 				if msg.HasMedia {
-					actionText += ", M to open media"
+					actionText += ", open media"
 				}
 				if msg.ResponseToID != "" {
-					actionText += ", Enter to jump to quoted message"
+					actionText += ", jump to quoted message"
 				}
 				topbarText = fmt.Sprintf(" Selected: %s (%s, Esc to return to input)", msg.MsgID, actionText)
 			}
@@ -105,7 +105,7 @@ func (mp messages_page) View() string {
 			msg := mp.messages[mp.replyingToMsg]
 			topbarText = fmt.Sprintf(" Replying to \"%s\" (ID: %s, Esc to cancel reply)", msg.Body, msg.MsgID)
 		} else {
-			topbarText = " Messages (↑ ↓ to enter select mode, Enter to send, Esc to go back)"
+			topbarText = " Messages "
 		}
 	}
 
@@ -220,12 +220,10 @@ func (mp *messages_page) calculateMessageLines() {
 
 		sender, ok := mp.container.app.id_to_name[sender_id]
 		if !ok {
-			if msg.FromMe {
-				mp.container.app.id_to_name[sender_id] = "You"
-				sender = "You"
-			} else {
-				sender = sender_id
-			}
+			sender = sender_id
+		}
+		if msg.FromMe {
+			sender = "You"
 		}
 
 		renderedLine, _ := mp.renderMsg(msg, i, sender)
@@ -654,6 +652,11 @@ func (mp *messages_page) registerLuaFuncs() {
 		return 1
 	}))
 
+	L.SetGlobal("input_content", L.NewFunction(func(L *lua.LState) int {
+		L.Push(lua.LString(mp.input))
+		return 1
+	}))
+
 	L.SetGlobal("quit", L.NewFunction(func(L *lua.LState) int {
 		mp.container.commands = append(mp.container.commands, tea.Quit)
 		return 0
@@ -808,9 +811,7 @@ func (mp messages_page) renderMsg(msg message, idx int, sender string) (string, 
 					_rendered = result
 					_handled = true
 				end
-				_rendered = result
 			end
-			_handled = true
 		`, str)
 
 	err = L.DoString(luaScript)

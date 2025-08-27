@@ -14,7 +14,7 @@ This file configures keybindings and message rendering for a WhatsApp command-li
 
 ### Bindable Actions
 
-#### Messages Keybind Actions
+#### Messages Actions
 
 - `"scroll_up"`
 - `"scroll_down"`
@@ -27,6 +27,12 @@ This file configures keybindings and message rendering for a WhatsApp command-li
 - `"apend_input"` -> appends a string to the current input
 - `"backspace_input"` -> Deletes the last character from the current input
 - `"submit_input"` -> Submits the current input as a message
+- `"quit"` -> Quits the application
+
+#### Messages Functions
+
+- `"in_input()"` -> Returns true if the user is currently typing a message
+- `"input_content()"` -> Returns the current content of the input box
 
 #### Chats Keybind Actions
 
@@ -38,9 +44,11 @@ This file configures keybindings and message rendering for a WhatsApp command-li
 
 ### Renders
 
-###### Controls how messages are formatted and colored in the terminal.
+Controls how messages are formatted and colored in the terminal.
 
-Your renderer function will receive a message object with the following properties:
+
+#### `renders["message"]`
+Your message renderer function will receive a message object with the following properties:
 
 ```
 {
