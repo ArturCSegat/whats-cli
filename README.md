@@ -13,25 +13,25 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go25-blue?logo=go" />
-  <img src="https://img.shields.io/badge/Lua25-lightgrey?logo=lua" />
-  <img src="https://img.shields.io/badge/TypeScript-blue?logo=typescript" />
-  <img src="https://img.shields.io/badge/Docker-blue?logo=docker" />
+  <img src="https://img.shields.io/badge/Go-frontend-blue?logo=go" />
+  <img src="https://img.shields.io/badge/Lua-scripting-lightgrey?logo=lua" />
+  <img src="https://img.shields.io/badge/TypeScript-backend-blue?logo=typescript" />
+  <img src="https://img.shields.io/badge/Docker-backend-blue?logo=docker" />
 </p>
 
 A command-line WhatsApp client written in Go and highly riceable with Lua scripts
 
 ---
 
-## 📥 Download Binaries (if not building from source)
+# Features
 
-Download the latest pre-built binaries for your OS from the [Releases page](https://github.com/ArturCSegat/whats-cli/releases/latest):
-
-- [Linux (x86_64)](https://github.com/ArturCSegat/whats-cli/releases/latest/download/whats-cli-linux-amd64)
-- [macOS (x86_64)](https://github.com/ArturCSegat/whats-cli/releases/latest/download/whats-cli-darwin-amd64)
-- [Windows (x86_64)](https://github.com/ArturCSegat/whats-cli/releases/latest/download/whats-cli-windows-amd64.exe)
-
-> See the [Installation Guide](#-installation-guide) for details.
+- **Sending messages** (Text, Audio, Images, Video, etc)
+- **Opening Media** (uses default browser)
+- **Forwarding, Deleting, Replying** messages
+- **Custom keybinding** for native functionality 
+- **Custom keybinding** with custom functionality 
+- **Custom rendering** of messages for personalised UI
+- **Custom hooks** run on message received 
 
 ---
 
@@ -43,7 +43,6 @@ Welcome! This guide will get you up and running with **whats-cli**—a command-l
 
 ## 📦 Prerequisites
 
-- **Go** (if not using binaries) — [Download Go](https://golang.org/dl/)
 - **Node.js & npm/yarn** (if not using Docker) — [Download Node.js](https://nodejs.org/)
 - **Docker** (if not using Node):  
   - [Windows](https://docs.docker.com/windows/started)
@@ -52,9 +51,7 @@ Welcome! This guide will get you up and running with **whats-cli**—a command-l
 
 ---
 
-## 🏁 Quickstart
-
-### 1. Download the Latest Binary
+## Download the Latest Binary
 
 Go to the [Releases page](https://github.com/ArturCSegat/whats-cli/releases/latest) and download the binary for your OS:
 
@@ -64,7 +61,7 @@ Go to the [Releases page](https://github.com/ArturCSegat/whats-cli/releases/late
 
 ---
 
-## 1️⃣ Setting Up the whatshttp Backend
+## Setting Up the whatshttp Backend
 
 whats-cli communicates with whatshttp via HTTP. You **must** have whatshttp running before using whats-cli.
 
@@ -156,12 +153,12 @@ Scan the QR code with your WhatsApp app to link your account. Wait for session t
 
 3. **Run whats-cli:**
    ```bash
-   ./whats-cli-linux
+   ./whats-cli
    ```
 
 ### Configuration (Optional)
 
-Configuration is done by editing the scripts in the lua folder that will be created in the same folder as the binary. Information on how to configure can be found in the [docs](https://github.com/ArturCSegat/whats-cli/blob/tree/docs)
+Configuration is done by editing the scripts in the lua folder that will be created in the same folder as the binary. Information on how to configure can be found in the [docs](https://github.com/ArturCSegat/whats-cli/tree/master/docs/configuration)
 
 ## 📚 Resources
 
