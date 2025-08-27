@@ -23,7 +23,17 @@ A command-line WhatsApp client written in Go and highly riceable with Lua script
 
 ---
 
+# Features
 
+- **Sending messages** (Text, Audio, Images, Video, etc)
+- **Opening Media** (uses default browser)
+- **Forwarding, Deleting, Replying** messages
+- **Custom keybinding** for native functionality 
+- **Custom keybinding** with custom functionality 
+- **Custom rendering** of messages for personalised UI
+- **Custom hooks** run on message received 
+
+---
 
 # 🚀 whats-cli Installation Guide
 
@@ -32,7 +42,7 @@ Welcome! This guide will get you up and running with **whats-cli**—a command-l
 ---
 
 ## 📦 Prerequisites
-l
+
 - **Node.js & npm/yarn** (if not using Docker) — [Download Node.js](https://nodejs.org/)
 - **Docker** (if not using Node):  
   - [Windows](https://docs.docker.com/windows/started)
