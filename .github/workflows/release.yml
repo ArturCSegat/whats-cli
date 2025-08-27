@@ -30,5 +30,4 @@ jobs:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         goos: ${{ matrix.goos }}
         goarch: ${{ matrix.goarch }}
-        goversion: "https://dl.google.com/go/go1.24.5.linux-amd64.tar.gz"
         binary_name: "whats-cli"
