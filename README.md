@@ -156,7 +156,7 @@ Scan the QR code with your WhatsApp app to link your account. Wait for session t
 
 3. **Run whats-cli:**
    ```bash
-   ./whats-cli-linux
+   ./whats-cli
    ```
 
 ### Configuration (Optional)
