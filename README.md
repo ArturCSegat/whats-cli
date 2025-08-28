@@ -142,22 +142,16 @@ whats-cli communicates with whatshttp via HTTP. You **must** have whatshttp runn
 2. **Install dependencies:**
    ```bash
    npm install
-   # or
-   yarn install
    ```
 
 3. **Build the project:**  
    ```bash
    npm run build
-   # or
-   yarn build
    ```
 
 4. **Run the server:**
      ```bash
      npm start
-     # or
-     yarn start
      ```
 ---
 
