@@ -46,45 +46,45 @@ end
 
 styles = {
   selectedStyle = {
-    fg = "#00796B",    -- Teal
+    fg = "#008000",
     bold = true
   },
 
   unselectedStyle = {
-    fg = "#B0BEC5"     -- Light Gray
+    fg = "#808080" -- was "8"
   },
 
   hyperlink = {
-    fg = "#F3E5F5",    -- Light Lavender
-    bg = "#7C4DFF"     -- Deep Purple
+    fg = "#FFFFFF",
+    bg = "#0000FF"
   },
 
   selfPrefix = {
-    fg = "#26A69A"     -- Lighter Teal
+    fg = "#00FF00" -- was "10"
   },
 
   selfBody = {
-    fg = "#80CBC4"     -- Muted Aqua
+    fg = "#7FFF7F"
   },
 
   topbarStyke = {
-    fg = "#F3E5F5",    -- Light Lavender
-    bg = "#512DA8",    -- Dark Purple
+    fg = "#FFFFFF", -- was "15"
+    bg = "#808080", -- was "8"
     bold = true
   },
 
   bottombarStyle = {
-    fg = "#F3E5F5",    -- Light Lavender
-    bg = "#9575CD"     -- Lighter Purple
+    fg = "#FFFFFF", -- was "15"
+    bg = "#808080" -- was "8"
   },
 
   replyHighlight = {
-    fg = "#263238",    -- Blue Gray (dark text)
-    bg = "#E0F7FA"     -- Pale Cyan
+    fg = "#000000",
+    bg = "#FFFFFF"
   },
 
   errorBarStyle = {
-    fg = "#FFFFFF",    -- White
-    bg = "#D32F2F"     -- Strong Red
+    fg = "#FFFFFF",
+    bg = "#FF0000"
   }
-}
+}--

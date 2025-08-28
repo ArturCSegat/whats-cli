@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	lua "github.com/yuin/gopher-lua"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	lua "github.com/yuin/gopher-lua"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -422,8 +423,8 @@ func (mp *messages_page) registerLuaFuncs() {
 			mp.scrollOffset = len(mp.lines) - (mp.container.app.height - 2)
 			mp.curr_line = len(mp.lines) - 1
 		} else if mp.selectedMsg > 0 {
-			str, _ := mp.renderMsg(mp.messages[mp.selectedMsg], mp.selectedMsg, "")
-			mp.curr_line -= (len(strings.Split(str, "\n")) + 1)
+			str, _ := mp.renderMsg(mp.messages[mp.selectedMsg], mp.selectedMsg, "sender")
+			mp.curr_line -= (len(strings.Split(str, "\n")))
 			mp.selectedMsg--
 			if mp.curr_line < mp.scrollOffset {
 				mp.scrollOffset = mp.curr_line - (mp.container.app.height - 2)
@@ -436,8 +437,8 @@ func (mp *messages_page) registerLuaFuncs() {
 		mp.calculateMessageLines()
 		if !mp.inInput {
 			if mp.selectedMsg < len(mp.messages)-1 {
-				str, _ := mp.renderMsg(mp.messages[mp.selectedMsg], mp.selectedMsg, "")
-				mp.curr_line += len(strings.Split(str, "\n")) + 1
+				str, _ := mp.renderMsg(mp.messages[mp.selectedMsg], mp.selectedMsg, "sender")
+				mp.curr_line += len(strings.Split(str, "\n"))
 				mp.selectedMsg++
 				if mp.curr_line >= mp.scrollOffset+(mp.container.app.height-2) {
 					mp.scrollOffset = mp.curr_line - (mp.container.app.height - 2) + 1

@@ -238,115 +238,114 @@ chat_keybinds = {
 
 renders = {
 	["message"] = function(msg_table)
-		local msg         = msg_table["message"]
-		local info        = msg_table["info"] or {}
-		local from        = msg["from"]
-		local body        = tostring(msg["body"] or "")
-		local fromMe      = msg["fromMe"]
-		local selected    = info["is_selected"]
-		local termWidth   = tonumber(info["width"]) or 80
-		local name        = tostring(info["name"] or "")
+		local msg = msg_table["message"]
+		local info = msg_table["info"] or {}
+		local fromMe = msg["fromMe"]
+		local styles = styles or {}
+		local termWidth = tonumber(info["width"]) or 80
 		local headerSpace = tonumber(info["header_height"]) or 2
 
+		-- Format timestamp
+		local iso = tostring(msg["timestamp"] or "")
+		local y, m, d, h, min = iso:match("(%d+)%-(%d+)%-(%d+)T(%d+):(%d+)")
+		local timestamp = string.format("%s:%s - %s/%s", h or "??", min or "??", m or "??", d or "??")
+
+		-- Prepare message body
+		local body = tostring(msg["body"] or "")
 		if msg["hasMedia"] then
-			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[MEDIA]" .. reset() .. "\n" ..  body
-		end
-		if msg["type"] == "revoked" then
-			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg).. "[DELETED]" .. reset()
-		end
-		if msg["type"] == "ciphertext" then
-			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[VIS ONCE]".. reset()
-		end
-		-- check if type not in list of types
-		local types = {
-			["chat"]=true,
-			["image"]=true,
-			["video"]=true,
-			["audio"]=true,
-			["voice"]=true,
-			["document"]=true,
-			["sticker"]=true,
-			["contact"]=true,
-			["revoked"]=true,
-			["ciphertext"]=true,
-		}
-		if not types[msg['type']] then
-			body =  "msg of type(" .. tostring(msg['type']) .. ") is not properly displayed"
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[MEDIA]" .. reset() .. "\n" .. body
+		elseif msg["type"] == "revoked" then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[DELETED]" .. reset()
+		elseif msg["type"] == "ciphertext" then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[VIS ONCE]" .. reset()
 		end
 
-		local lines       = {}
+		local allowed_types = {
+			chat = true,
+			image = true,
+			video = true,
+			audio = true,
+			voice = true,
+			document = true,
+			sticker = true,
+			contact = true,
+			revoked = true,
+			ciphertext = true
+		}
+		if not allowed_types[msg["type"]] then
+			body = "msg of type(" .. tostring(msg['type']) .. ") is not properly displayed"
+		end
+
+		-- Split into lines and find max width
+		local lines, width = {}, 0
 		for line in body:gmatch("[^\r\n]+") do
 			table.insert(lines, line)
+			local l = #strip_ansi(line)
+			if l > width then width = l end
 		end
 
-		local contentWidth = 0
-		for _, line in ipairs(lines) do
-			line = strip_ansi(line)
-			if #line > contentWidth then contentWidth = #line end
+		local function style_line(line, color)
+			return color and fg(color) .. line .. reset() or line
 		end
-		local bubbleWidth = contentWidth + 4
 
+		-- Build bubble
 		local bubble = {}
-		table.insert(bubble, "┌" .. string.rep("─", contentWidth + 2) .. "┐")
+		table.insert(bubble, "┌" .. string.rep("─", width + 2) .. "┐")
 		for _, line in ipairs(lines) do
-			local pad = contentWidth - #strip_ansi(line)
+			local pad = width - #strip_ansi(line)
 			table.insert(bubble, "│ " .. line .. string.rep(" ", pad) .. " │")
 		end
-		table.insert(bubble, "└" .. string.rep("─", contentWidth + 2) .. "┘")
+		table.insert(bubble, "└" .. string.rep("─", width + 2) .. "┘")
 
-		-- Apply self color if fromMe
+		-- Style for sender
 		if fromMe and styles.selfBody and styles.selfBody.fg then
-			local colorPrefix = fg(styles.selfBody.fg)
-			local colorSuffix = reset()
-			for i, line in ipairs(bubble) do
-				bubble[i] = colorPrefix .. line .. colorSuffix
+			for i = 1, #bubble do bubble[i] = style_line(bubble[i], styles.selfBody.fg) end
+		end
+		if info["is_selected"] then
+			for i = 1, #bubble do
+				bubble[i] = "\27[30;47m" .. strip_ansi(bubble[i]) .. "\27[0m"
 			end
 		end
 
-		-- Apply highlight if selected
-		if selected then
-			for i, line in ipairs(bubble) do
-				bubble[i] = "\27[30;47m" .. strip_ansi(line) .. "\27[0m"
-			end
-		end
-
+		-- Tail
 		local tail = fromMe and "╰─▶" or "◀─╯"
 		if fromMe and styles.selfBody and styles.selfBody.fg then
-			tail = fg(styles.selfBody.fg) .. tail .. reset()
+			tail = style_line(tail, styles.selfBody.fg)
 		end
 		table.insert(bubble, tail)
 
+		-- Name + timestamp
+		local name = tostring(info["name"] or "")
 		if name ~= "" then
-			local nameLine = name
+			local nt = name .. "  " .. timestamp
 			if fromMe then
-				local namePad = termWidth - #name
-				if namePad > 0 then
-					nameLine = string.rep(" ", namePad) .. name
-				end
+				nt = string.rep(" ", math.max(0, termWidth - #nt)) .. nt
 			end
-			table.insert(bubble, 1, nameLine)
+			if fromMe and styles.selfBody and styles.selfBody.fg then
+				nt = style_line(nt, styles.selfBody.fg)
+			end
+			table.insert(bubble, 1, nt)
 		end
 
-		for i = 1, headerSpace do
-			table.insert(bubble, 1, "")
-		end
+		-- Header space
+		for _ = 1, headerSpace do table.insert(bubble, 1, "") end
 
+		-- Bubble alignment
 		if fromMe then
-			local leftPad = termWidth - bubbleWidth
-			if leftPad < 0 then leftPad = 0 end
-			for i = headerSpace + 1, #bubble do
-				bubble[i] = string.rep(" ", leftPad) .. bubble[i]
+			local pad = math.max(0, termWidth - (width + 4))
+			for i = headerSpace + 2, #bubble do
+				bubble[i] = string.rep(" ", pad) .. bubble[i]
 			end
 		end
 
 		return table.concat(bubble, "\n")
 	end,
 
-	["chat"] = function (tbl)
+	["chat"] = function(tbl)
 		if tbl['info']['is_selected'] then
-			return fg(styles.selectedStyle.fg) ..  "> " .. tbl['chat']['name'] .. reset() .. "\n"
+			return fg(styles.selectedStyle.fg) .. "> " .. tbl['chat']['name'] .. reset() .. "\n"
 		end
-		return fg(styles.unselectedStyle.fg) ..  "  " .. tbl['chat']['name'] .. reset() .. "\n"
+		return fg(styles.unselectedStyle.fg) .. "  " .. tbl['chat']['name'] .. reset() .. "\n"
 	end
 }
 `
