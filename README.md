@@ -23,6 +23,53 @@ A command-line WhatsApp client written in Go and highly riceable with Lua script
 
 ---
 
+# Screenshots Mural
+
+A visual mural of all screenshots in the [`screenshots`](https://github.com/ArturCSegat/whats-cli/tree/master/screenshots) folder.  
+<table>
+  <tr>
+    <td>
+      <a href="https://github.com/ArturCSegat/whats-cli/blob/master/screenshots/default.jpeg">
+        <img src="https://raw.githubusercontent.com/ArturCSegat/whats-cli/master/screenshots/default.jpeg" alt="default" width="180"/>
+      </a><br/>
+      <sub><a href="https://github.com/ArturCSegat/whats-cli/blob/master/screenshots/default.jpeg">default UI</a></sub>
+    </td>
+    <td>
+      <a href="https://github.com/ArturCSegat/whats-cli/blob/master/screenshots/different_default.jpg">
+        <img src="https://raw.githubusercontent.com/ArturCSegat/whats-cli/master/screenshots/different_default.jpg" alt="different_default" width="180"/>
+      </a><br/>
+      <sub><a href="https://github.com/ArturCSegat/whats-cli/blob/master/screenshots/different_default.jpg">default UI with custom colors</a></sub>
+    </td>
+    <td>
+      <a href="https://github.com/ArturCSegat/whats-cli/blob/master/screenshots/different_old.jpg">
+        <img src="https://raw.githubusercontent.com/ArturCSegat/whats-cli/master/screenshots/different_old.jpg" alt="different_old" width="180"/>
+      </a><br/>
+      <sub><a href="https://github.com/ArturCSegat/whats-cli/blob/master/screenshots/different_old.jpg">old school UI with custom colors</a></sub>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <a href="https://github.com/ArturCSegat/whats-cli/blob/master/screenshots/discord_like.jpg">
+        <img src="https://raw.githubusercontent.com/ArturCSegat/whats-cli/master/screenshots/discord_like.jpg" alt="discord_like" width="180"/>
+      </a><br/>
+      <sub><a href="https://github.com/ArturCSegat/whats-cli/blob/master/screenshots/discord_like.jpg">Discord like UI</a></sub>
+    </td>
+    <td>
+      <a href="https://github.com/ArturCSegat/whats-cli/blob/master/screenshots/old.jpg">
+        <img src="https://raw.githubusercontent.com/ArturCSegat/whats-cli/master/screenshots/old.jpg" alt="old" width="180"/>
+      </a><br/>
+      <sub><a href="https://github.com/ArturCSegat/whats-cli/blob/master/screenshots/old.jpg">old school UI with default colors</a></sub>
+    </td>
+    <td>
+      <a href="https://github.com/ArturCSegat/whats-cli/blob/master/screenshots/tower.jpg">
+        <img src="https://raw.githubusercontent.com/ArturCSegat/whats-cli/master/screenshots/tower.jpg" alt="tower" width="180"/>
+      </a><br/>
+      <sub><a href="https://github.com/ArturCSegat/whats-cli/blob/master/screenshots/tower.jpg">weird tower UI</a></sub>
+    </td>
+  </tr>
+</table>
+
+---
 # Features
 
 - **Sending messages** (Text, Audio, Images, Video, etc)
