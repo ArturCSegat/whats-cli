@@ -55,9 +55,9 @@ Welcome! This guide will get you up and running with **whats-cli**—a command-l
 
 Go to the [Releases page](https://github.com/ArturCSegat/whats-cli/releases/latest) and download the binary for your OS:
 
-- Linux: `whats-cli-linux-amd64`
-- macOS: `whats-cli-darwin-amd64`
-- Windows: `whats-cli-windows-amd64.exe`
+- Linux: `whats-cli-linux-***`
+- macOS: `whats-cli-darwin-***`
+- Windows: `whats-cli-windows-***.exe`
 
 ---
 
