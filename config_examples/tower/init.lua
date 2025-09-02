@@ -48,9 +48,13 @@ renders = {
 		if msg["type"] == "ciphertext" then
 			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[VIS ONCE]".. reset()
 		end
+		if msg["type"] == "ptt" then
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[VOICE AUDIO]".. reset()
+		end
 		-- check if type not in list of types
 		local types = {
 			["chat"]=true,
+			["ptt"]=true,
 			["image"]=true,
 			["video"]=true,
 			["audio"]=true,

@@ -61,15 +61,21 @@ renders = {
 		end
 
 		local indicator_body = ""
+		if msg["hasMedia"] then
+			table.insert(indicators, hyperlink_tag("[MEDIA]"))
+			indicator_body = tostring(msg["body"] or "")
+		end
 		if msg["type"] == "revoked" then
 			table.insert(indicators, hyperlink_tag("[DELETED]"))
 			indicator_body = ""
-		elseif msg["type"] == "ciphertext" then
+		end
+		if msg["type"] == "ciphertext" then
 			table.insert(indicators, hyperlink_tag("[VIS ONCE]"))
 			indicator_body = ""
-		elseif msg["hasMedia"] then
-			table.insert(indicators, hyperlink_tag("[MEDIA]"))
-			indicator_body = tostring(msg["body"] or "")
+		end
+		if msg["type"] == "ptt" then
+			table.insert(indicators, hyperlink_tag("[VOICE AUDIO]"))
+			indicator_body = ""
 		else
 			indicator_body = tostring(msg["body"] or "")
 		end
@@ -103,19 +109,18 @@ renders = {
 			table.insert(lines, line:match("^%s*(.-)%s*$"))
 		end
 
-		-- Compose output lines, only first line gets indicators
 		local out_lines = {}
 		for i, l in ipairs(lines) do
 			local prefix_part = (i == 1) and prefix or string.rep(" ", prefixLen)
 			local indicator_part = (i == 1) and indicator_str or ""
 			local body_part = l
+			local full_line = prefix_part .. indicator_part .. body_part
 			if fromMe and styles.selfBody and styles.selfBody.fg then
 				local fgcode = fg(styles.selfBody.fg)
 				local bgcode = styles.selfBody.bg and bg(styles.selfBody.bg) or ""
 				local resetcode = reset()
-				body_part = fgcode .. bgcode .. l .. resetcode
+				full_line = fgcode .. bgcode .. full_line .. resetcode
 			end
-			local full_line = prefix_part .. indicator_part .. body_part
 			full_line = full_line .. string.rep(" ", termWidth - #strip_ansi(full_line))
 			table.insert(out_lines, full_line)
 		end

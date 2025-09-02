@@ -69,6 +69,7 @@ renders = {
 		local body = tostring(msg_table["message"]["body"] or "")
 		local types = {
 			["chat"] = true,
+			["ptt"] = true,
 			["image"] = true,
 			["video"] = true,
 			["audio"] = true,
@@ -90,6 +91,9 @@ renders = {
 		end
 		if msg_table["message"]["type"] == "ciphertext" then
 			body = "[VIS ONCE]"
+		end
+		if msg_table["message"]["type"] == "ptt" then
+			body = "[VOICE AUDIO]"
 		end
 
 		local lines = {}
