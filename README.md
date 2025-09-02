@@ -82,11 +82,7 @@ A visual mural of all screenshots in the [`screenshots`](https://github.com/Artu
 
 ---
 
-# 🚀 whats-cli Installation Guide
-
-Welcome! This guide will get you up and running with **whats-cli**—a command-line WhatsApp client—and its required backend, **whatshttp** (a TypeScript HTTP API for WhatsApp).
-
----
+# Installation Guide
 
 ## 📦 Prerequisites
 
