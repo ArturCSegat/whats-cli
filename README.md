@@ -197,3 +197,14 @@ Scan the QR code with your WhatsApp app to link your account. Wait for session t
 
 Configuration is done by editing the scripts in the lua folder that will be created in the same folder as the binary. Information on how to configure can be found in the [docs](https://github.com/ArturCSegat/whats-cli/tree/master/docs/configuration)
 
+# Tips
+
+## Insert media:
+To anex media to your message type either `media:"/path/to/media"` or `media:clipboard` (to paste clipboard)
+## Default message interaction binds:
+- `m`-> Opens selected message's media
+- `r`-> Quotes the selected message
+- `f`-> Fowards the selected message
+- `d`-> Deletes the selected message
+
+
