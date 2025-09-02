@@ -82,11 +82,7 @@ A visual mural of all screenshots in the [`screenshots`](https://github.com/Artu
 
 ---
 
-# 🚀 whats-cli Installation Guide
-
-Welcome! This guide will get you up and running with **whats-cli**—a command-line WhatsApp client—and its required backend, **whatshttp** (a TypeScript HTTP API for WhatsApp).
-
----
+# Installation Guide
 
 ## 📦 Prerequisites
 
@@ -197,20 +193,7 @@ Scan the QR code with your WhatsApp app to link your account. Wait for session t
    ./whats-cli
    ```
 
-### Configuration (Optional)
+# Configuration
 
 Configuration is done by editing the scripts in the lua folder that will be created in the same folder as the binary. Information on how to configure can be found in the [docs](https://github.com/ArturCSegat/whats-cli/tree/master/docs/configuration)
 
-## 📚 Resources
-
-- [whatshttp on GitHub](https://github.com/ArturCSegat/whatshttp)
-- [whats-cli on GitHub](https://github.com/ArturCSegat/whats-cli)
-- [Docker Hub for whatshttp](https://hub.docker.com/r/arturcsegat/whatshttp)
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
----
