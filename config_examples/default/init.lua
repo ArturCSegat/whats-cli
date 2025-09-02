@@ -50,7 +50,7 @@ renders = {
 		elseif msg["type"] == "ciphertext" then
 			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[VIS ONCE]" .. reset()
 		elseif msg["type"] == "ptt" then
-			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "VOICE AUDIO" .. reset()
+			body = fg(styles.hyperlink.fg) .. bg(styles.hyperlink.bg) .. "[VOICE AUDIO]" .. reset()
 		end
 
 		local allowed_types = {
