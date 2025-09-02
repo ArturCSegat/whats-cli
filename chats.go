@@ -12,25 +12,27 @@ import (
 )
 
 type Chat struct {
-		ID             string `json:"id"`
-		Name           string `json:"name"`
-		UnreadCount    int    `json:"unreadCount"`
-		LastMessage    string `json:"lastMessageBody"`
-		IsArchived     bool   `json:"isArchived"`
-		IsGroup        bool   `json:"isGroup"`
-		IsMuted        bool   `json:"isMuted"`
-		IsReadOnly     bool   `json:"isReadOnly"`
-		IsPinned       bool   `json:"isPinned"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	UnreadCount int    `json:"unreadCount"`
+	LastMessage message `json:"lastMessage"`
+	IsArchived  bool   `json:"isArchived"`
+	IsGroup     bool   `json:"isGroup"`
+	IsMuted     bool   `json:"isMuted"`
+	IsReadOnly  bool   `json:"isReadOnly"`
+	IsPinned    bool   `json:"isPinned"`
 }
 type chats_page struct {
 	chats        []Chat
 	selectedChat int
 	scrollOffset int
+	curr_line    int
 	container    *pageContainer
 	forwarding   struct {
 		isForwarding bool
 		MsgID        string
 	}
+	lines []string
 }
 
 type chatsLoadedMsg []Chat
@@ -60,13 +62,22 @@ func (cp *chats_page) registerLuaFuncs() {
 
 	L.SetGlobal("chat_scroll_up", L.NewFunction(func(L *lua.LState) int {
 		if cp.selectedChat > 0 {
+			cp.curr_line -= len(strings.Split(cp.renderChat(cp.chats[cp.selectedChat], cp.selectedChat), "\n"))
 			cp.selectedChat--
+			if cp.curr_line < cp.scrollOffset {
+				cp.scrollOffset = cp.curr_line - (cp.container.app.height - 6)
+			}
 		}
 		return 0
 	}))
 	L.SetGlobal("chat_scroll_down", L.NewFunction(func(L *lua.LState) int {
 		if cp.selectedChat < len(cp.chats)-1 {
+			cp.curr_line += len(strings.Split(cp.renderChat(cp.chats[cp.selectedChat], cp.selectedChat), "\n"))
 			cp.selectedChat++
+			if cp.curr_line >= cp.scrollOffset+(cp.container.app.height-3) {
+				cp.scrollOffset = cp.curr_line
+			}
+
 		}
 		return 0
 	}))
@@ -80,6 +91,23 @@ func (cp *chats_page) registerLuaFuncs() {
 		cp.container.app.luaReturn = "go_messages"
 		cp.container.commands = append(cp.container.commands, getMessages(cp.chats[cp.selectedChat].ID))
 		return 0
+	}))
+
+	L.SetGlobal("current_chat_tbl", L.NewFunction(func(L *lua.LState) int {
+		chat := cp.chats[cp.selectedChat]
+		tableStr, err := struct_to_lua_table(chat)
+		if err != nil {
+			panic(err)
+		}
+		if err := L.DoString("return " + tableStr); err != nil {
+			panic(err)
+		}
+		tbl := L.Get(-1) // retrieve the table
+		L.Pop(1)         // remove it from the stack
+
+		L.Push(tbl)
+
+		return 1
 	}))
 }
 
@@ -114,7 +142,6 @@ func (cp chats_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if err != nil {
 			fmt.Println("Lua error:", err)
 		}
-
 
 		if cp.container.app.luaReturn != "" {
 			switch cp.container.app.luaReturn {
@@ -154,29 +181,37 @@ func (cp chats_page) View() string {
 	startIndex := 0
 	endIndex := len(cp.chats)
 
-	// If we have more chats than available container.app.height, center the selection
-	if len(cp.chats) > availableHeight {
-		startIndex = cp.selectedChat - availableHeight/2
-		if startIndex < 0 {
-			startIndex = 0
-		}
-		endIndex = startIndex + availableHeight
-		if endIndex > len(cp.chats) {
-			endIndex = len(cp.chats)
-			startIndex = endIndex - availableHeight
-			if startIndex < 0 {
-				startIndex = 0
-			}
-		}
-	}
-
+	lines := make([]string, 0)
 	for i := startIndex; i < endIndex; i++ {
 		c := cp.chats[i]
 		name := c.Name
 		if name == "" {
 			name = c.ID
 		}
-		b.WriteString(cp.renderChat(c, i))
+		str := cp.renderChat(c, i)
+		lines = append(lines, strings.Split(str, "\n")...)
+	}
+	cp.lines = lines
+	var displayLines []string
+	startIdx := cp.scrollOffset
+	endIdx := cp.scrollOffset + availableHeight
+
+	// Ensure we don't scroll past the end
+	if endIdx > len(cp.lines) {
+		endIdx = len(cp.lines)
+		startIdx = max(0, endIdx-availableHeight)
+	}
+
+	// Ensure we don't scroll before the beginning
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	if startIdx < len(cp.lines) {
+		displayLines = cp.lines[startIdx:endIdx]
+	}
+	for _, line := range displayLines {
+		b.WriteString(line + "\n")
 	}
 	return b.String()
 }
@@ -184,16 +219,15 @@ func (cp chats_page) View() string {
 func (cp *chats_page) renderChat(chat Chat, idx int) string {
 	L := cp.container.app.luaState
 	type chat_to_render_info struct {
-		Is_selected bool   `json:"is_selected"`
-		Width       int    `json:"width"`
-		Height      int    `json:"height"`
+		Is_selected bool `json:"is_selected"`
+		Width       int  `json:"width"`
+		Height      int  `json:"height"`
 	}
 
 	type chat_to_render struct {
 		Info chat_to_render_info `json:"info"`
-		Chat Chat               `json:"chat"`
+		Chat Chat                `json:"chat"`
 	}
-
 
 	str, err := struct_to_lua_table(
 		chat_to_render{

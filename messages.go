@@ -663,6 +663,22 @@ func (mp *messages_page) registerLuaFuncs() {
 		return 0
 	}))
 
+	L.SetGlobal("current_message_tbl", L.NewFunction(func(L *lua.LState) int {
+		msg := mp.messages[mp.selectedMsg]
+		tableStr, err := struct_to_lua_table(msg)
+		if err != nil {
+			panic(err)
+		}
+		if err := L.DoString("return " + tableStr); err != nil {
+			panic(err)
+		}
+		tbl := L.Get(-1) // retrieve the table
+		L.Pop(1)         // remove it from the stack
+
+		L.Push(tbl)
+
+		return 1
+	}))
 }
 
 func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -734,13 +750,17 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case webhookMsg:
 		L := mp.container.app.luaState
-		luaKeyHandled := false
 
 		str, err := struct_to_lua_table(msg.Message)
 		if err != nil {
 			panic(err.Error())
 		}
 		lua_str := fmt.Sprintf(`
+			if not hooks then
+				handled = false
+				return
+			end
+
 			local key = %q
 			local f = hooks[key]
 			tbl = %v
@@ -756,12 +776,8 @@ func (mp messages_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			panic("Lua error:" + err.Error() + "\n" + lua_str)
 		}
 
-		luaKeyHandled = L.GetGlobal("handled") == lua.LTrue
 		L.SetGlobal("handled", lua.LBool(false)) // reset
 
-		if !luaKeyHandled {
-			panic("unhandled hook")
-		}
 
 		if msg.Chat.ID != mp.from_chat.ID {
 			mp.container.commands = append(mp.container.commands, flash(updateFlashMsg{msg: "MSG FROM " + msg.Chat.Name, count: 6}))
