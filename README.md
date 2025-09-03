@@ -160,7 +160,7 @@ whats-cli communicates with whatshttp via HTTP. You **must** have whatshttp runn
 #### Find your local IP:
 
 - **Linux/macOS:**  
-  `hostname -I | awk '{print $1}'`
+  `hostname -i | awk '{print $1}'`
 - **Windows:**  
   Run `ipconfig` and look for your IPv4 address.
 
