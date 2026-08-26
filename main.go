@@ -1,14 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
-
-const baseURL = "http://localhost:3000"
-
 
 func max(a, b int) int {
 	if a > b {
@@ -18,28 +16,33 @@ func max(a, b int) int {
 }
 
 func main() {
-	err := validateBackend();
-	if err != nil {
-		fmt.Println("Error:", err)
+	if err := run(); err != nil {
+		fmt.Fprintln(os.Stderr, "Error:", err)
 		os.Exit(1)
 	}
+}
 
-	cmdChan := make(chan tea.Msg, 10)
-	startWebhookListener(cmdChan)
+func run() error {
+	relink := flag.Bool("relink", false, "clear the local session and import chats from a new WhatsApp link")
+	flag.Parse()
 
+	cmdChan := make(chan tea.Msg, 64)
+	client, err := connectWhatsmeow(cmdChan, *relink)
+	if err != nil {
+		return err
+	}
+	whatsApp = client
+	defer whatsApp.Close()
 
 	a := initialApp()
 	p := tea.NewProgram(*a, tea.WithAltScreen())
 
 	go func() {
-
 		for msg := range cmdChan {
 			p.Send(msg)
 		}
 	}()
 
-	if _, err := p.Run(); err != nil {
-		fmt.Println("Error:", err)
-		os.Exit(1)
-	}
+	_, err = p.Run()
+	return err
 }

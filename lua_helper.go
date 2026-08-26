@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	lua "github.com/yuin/gopher-lua"
 )
 
 // Escape string to be a valid Lua string literal (single quotes)
@@ -77,3 +79,34 @@ func toLuaValue(v interface{}) (string, error) {
 	}
 }
 
+func renderLua(L *lua.LState, name string, payload any) (string, bool, error) {
+	table, err := struct_to_lua_table(payload)
+	if err != nil {
+		return "", false, err
+	}
+
+	script := fmt.Sprintf(`
+		_rendered = nil
+		_render_error = nil
+		local f = renders and renders[%q]
+		if type(f) == "function" then
+			local ok, result = pcall(f, %s)
+			if ok and type(result) == "string" then
+				_rendered = result
+			elseif not ok then
+				_render_error = tostring(result)
+			end
+		end
+	`, name, table)
+	if err = L.DoString(script); err != nil {
+		return "", false, err
+	}
+	if renderErr := L.GetGlobal("_render_error"); renderErr != lua.LNil {
+		return "", false, fmt.Errorf("Lua %s renderer: %s", name, renderErr.String())
+	}
+	rendered := L.GetGlobal("_rendered")
+	if rendered == lua.LNil {
+		return "", false, nil
+	}
+	return rendered.String(), true, nil
+}

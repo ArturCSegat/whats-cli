@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 	"io/ioutil"
-	"path/filepath"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"unicode/utf8"
@@ -176,35 +176,47 @@ end try`)
 }
 
 func ensureLuaPath() (string, error) {
-	// Ensure the Lua scripts directory exists on the same folder as the binary (lua/init.lua)
 	exePath, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("failed to get executable path: %w", err)
 	}
-	exeDir := filepath.Dir(exePath)
-	luaDir := filepath.Join(exeDir, "lua")
 
-	if err := os.MkdirAll(luaDir, 0755); err != nil {
+	luaDir := filepath.Join(filepath.Dir(exePath), "lua")
+	if cwd, cwdErr := os.Getwd(); cwdErr == nil {
+		luaDir = luaDirFor(cwd, filepath.Dir(exePath))
+	}
+	if err = os.MkdirAll(luaDir, 0o755); err != nil {
 		return "", fmt.Errorf("failed to create lua directory: %w", err)
 	}
 
 	initLuaPath := filepath.Join(luaDir, "init.lua")
-	if _, err := os.Stat(initLuaPath); os.IsNotExist(err) {
-		if err := os.WriteFile(initLuaPath, []byte(defaultInitLua), 0644); err != nil {
+	if _, err = os.Stat(initLuaPath); os.IsNotExist(err) {
+		if err = os.WriteFile(initLuaPath, []byte(defaultInitLua), 0o644); err != nil {
 			return "", fmt.Errorf("failed to write default init.lua: %w", err)
 		}
+	} else if err != nil {
+		return "", fmt.Errorf("inspect init.lua: %w", err)
 	}
 
 	colorsLuaPath := filepath.Join(luaDir, "colors.lua")
-	if _, err := os.Stat(colorsLuaPath); os.IsNotExist(err) {
-		if err := os.WriteFile(colorsLuaPath, []byte(defaultColorsLua), 0644); err != nil {
+	if _, err = os.Stat(colorsLuaPath); os.IsNotExist(err) {
+		if err = os.WriteFile(colorsLuaPath, []byte(defaultColorsLua), 0o644); err != nil {
 			return "", fmt.Errorf("failed to write default colors.lua: %w", err)
 		}
+	} else if err != nil {
+		return "", fmt.Errorf("inspect colors.lua: %w", err)
 	}
 
 	return luaDir, nil
 }
 
+func luaDirFor(workingDir, executableDir string) string {
+	workingLuaDir := filepath.Join(workingDir, "lua")
+	if info, err := os.Stat(workingLuaDir); err == nil && info.IsDir() {
+		return workingLuaDir
+	}
+	return filepath.Join(executableDir, "lua")
+}
 
 var defaultInitLua = `
 message_keybinds = {
@@ -352,7 +364,6 @@ renders = {
 	end
 }
 `
-
 
 var defaultColorsLua = `
 function strip_ansi(str)

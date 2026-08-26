@@ -73,7 +73,7 @@ A visual mural of all screenshots in the [`screenshots`](https://github.com/Artu
 # Features
 
 - **Sending messages** (Text, Audio, Images, Video, etc)
-- **Opening Media** (uses default browser)
+- **Opening Media** (uses the default application)
 - **Forwarding, Deleting, Replying** messages
 - **Custom keybinding** for native functionality 
 - **Custom keybinding** with custom functionality 
@@ -84,13 +84,9 @@ A visual mural of all screenshots in the [`screenshots`](https://github.com/Artu
 
 # Installation Guide
 
-## 📦 Prerequisites
+## Prerequisites
 
-- **Node.js & npm/yarn** (if not using Docker) — [Download Node.js](https://nodejs.org/)
-- **Docker** (if not using Node):  
-  - [Windows](https://docs.docker.com/windows/started)
-  - [macOS](https://docs.docker.com/mac/started/)
-  - [Linux](https://docs.docker.com/linux/started/)
+Released binaries have no external service dependency. Building from source requires Go 1.25 or newer; Go will select the required toolchain automatically.
 
 ---
 
@@ -104,75 +100,26 @@ Go to the [Releases page](https://github.com/ArturCSegat/whats-cli/releases/late
 
 ---
 
-## Setting Up the whatshttp Backend
+## Link WhatsApp
 
-whats-cli communicates with whatshttp via HTTP. You **must** have whatshttp running before using whats-cli.
+whats-cli embeds [whatsmeow](https://github.com/tulir/whatsmeow) and connects directly to WhatsApp. No HTTP backend, Docker container, webhook, Node.js process, or browser is required.
 
-### 🐳 Option A: Run whatshttp with Docker
+On the first run:
 
-1. **Pull the Docker image:**
-   ```bash
-   docker pull arturcsegat/whatshttp:latest
-   ```
+1. Start `whats-cli`.
+2. Open WhatsApp on your phone.
+3. Go to **Settings > Linked devices > Link a device**.
+4. Scan the QR code shown in the terminal.
 
-2. **Run the container:**
-   ```bash
-   docker run -d \
-     -p 3000:3000 \
-     -v /home/artur/data:/app/data \
-     -e PORT=3000 \
-     arturcsegat/whatshttp:latest
-   ```
-   - Replace `/home/artur/data` with a persistent path on your machine.
+The linked-device session and synchronized chat history are restored automatically on later runs. Data is stored in the operating system's user configuration directory:
 
----
+- Linux: `$XDG_CONFIG_HOME/whats-cli`, or `~/.config/whats-cli`
+- macOS: `~/Library/Application Support/whats-cli`
+- Windows: `%AppData%\\whats-cli`
 
-### 🛠️ Option B: Build & Run whatshttp from Source (TypeScript)
+`session.db` contains the linked-device credentials. `history.db` contains the chats and messages received through WhatsApp history sync and live events. Keep both private. Delete `session.db` only when you intentionally want to link the application again.
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/ArturCSegat/whatshttp.git
-   cd whatshttp
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-
-3. **Build the project:**  
-   ```bash
-   npm run build
-   ```
-
-4. **Run the server:**
-     ```bash
-     npm start
-     ```
----
-
-### 🔑 WhatsApp Session Initialization
-
-> **Important:** For whats-cli to work, set:  
-> - `clientId`: **1**  
-> - `webHook`: `http://[your local ip]:4000/whatshttp/webhook`
-
-#### Find your local IP:
-
-- **Linux/macOS:**  
-  `hostname -i | awk '{print $1}'`
-- **Windows:**  
-  Run `ipconfig` and look for your IPv4 address.
-
-#### 💻 Generate the QR code for WhatsApp login
-
-Open this URL in your browser (replace `[your local ip]`):
-
-```
-http://localhost:3000/client/qrCode?clientId=1&webHook=http://[your local ip]:4000/whatshttp/webhook
-```
-
-Scan the QR code with your WhatsApp app to link your account. Wait for session to be established.
+If the device was linked before local chat-history persistence was available, run `whats-cli --relink` once. This explicitly clears the old linked session and local history, shows a new QR code, and imports the recent conversation list from WhatsApp's initial history sync.
 
 ---
 
@@ -195,7 +142,9 @@ Scan the QR code with your WhatsApp app to link your account. Wait for session t
 
 # Configuration
 
-Configuration is done by editing the scripts in the lua folder that will be created in the same folder as the binary. Information on how to configure can be found in the [docs](https://github.com/ArturCSegat/whats-cli/tree/master/docs/configuration)
+Configuration is loaded from `./lua/init.lua` and `./lua/colors.lua` when a `lua` directory exists in the current working directory. This makes the repository's `lua` directory work with `go run .`. Otherwise, whats-cli uses the `lua` directory beside the executable and creates default scripts there when needed. Information on configuration is available in the [docs](https://github.com/ArturCSegat/whats-cli/tree/master/docs/configuration).
+
+The repository's default Lua configuration follows BitchX's non-`HUMBLE` defaults from `include/color.h`: blue incoming and magenta outgoing public-message brackets, private-message labels, the standard 16-color ANSI palette, white-on-blue `STATUS_FORMAT`/`STATUS_FORMAT2` lines, the `[$C] ` input prompt, and the exact `/WINDOW LIST` column layout adapted to WhatsApp chats.
 
 # Tips
 

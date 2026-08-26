@@ -1,19 +1,18 @@
 package main
 
 import (
-	"os"
 	"fmt"
 	tea "github.com/charmbracelet/bubbletea"
 	lua "github.com/yuin/gopher-lua"
 	"golang.org/x/term"
+	"os"
+	"path/filepath"
 )
 
-
-
 type pageContainer struct {
-	page 	tea.Model
+	page     tea.Model
 	commands []tea.Cmd
-	app		*app
+	app      *app
 }
 
 func new_page_container(page tea.Model, app *app) *pageContainer {
@@ -24,28 +23,28 @@ func new_page_container(page tea.Model, app *app) *pageContainer {
 	return pc
 }
 
-func (pc * pageContainer) update (msg tea.Msg) {
+func (pc *pageContainer) update(msg tea.Msg) {
 	pc.commands = make([]tea.Cmd, 0)
-	p, _ := pc.page.Update(msg);
+	p, _ := pc.page.Update(msg)
 	pc.page = p
 	pc.page.Init()
 }
 
 type app struct {
-	page_conatiner	*pageContainer
-	id_to_name		map[string]string
-	width           int
-	height          int
-	flashMsg        string       // message to flash in bottom bar
-	flashCount      int          // counter for flash animation
-	luaState	*lua.LState 
-	luaReturn	string
+	page_conatiner *pageContainer
+	id_to_name     map[string]string
+	width          int
+	height         int
+	flashMsg       string // message to flash in bottom bar
+	flashCount     int    // counter for flash animation
+	luaState       *lua.LState
+	luaReturn      string
 }
 
 func initialApp() *app {
 	width, height, _ := term.GetSize(int(os.Stdout.Fd()))
-	a  := &app{}
-	pc := new_page_container(loading_page{}, a);
+	a := &app{}
+	pc := new_page_container(loading_page{}, a)
 	lp := new_loading_page(pc)
 	pc.page = lp
 	a.page_conatiner = pc
@@ -58,14 +57,14 @@ func initialApp() *app {
 	lua.OpenIo(a.luaState)
 	lua.OpenOs(a.luaState)
 	luaPath, err := ensureLuaPath()
-	if err != err {
-		panic("could not find lua path")
+	if err != nil {
+		panic(fmt.Errorf("resolve Lua configuration: %w", err))
 	}
 
-	if err := a.luaState.DoFile(luaPath + "/init.lua"); err != nil {
+	if err = a.luaState.DoFile(filepath.Join(luaPath, "init.lua")); err != nil {
 		panic(fmt.Errorf("error loading init.lua: %w", err))
 	}
-	if err := a.luaState.DoFile(luaPath + "/colors.lua"); err != nil {
+	if err = a.luaState.DoFile(filepath.Join(luaPath, "colors.lua")); err != nil {
 		panic(fmt.Errorf("error loading colors.lua: %w", err))
 	}
 	setup_styles(a.luaState)
@@ -78,9 +77,8 @@ func (m app) Init() tea.Cmd {
 	return nil
 }
 
-
 func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	m.page_conatiner.app = &m;
+	m.page_conatiner.app = &m
 	cmds := make([]tea.Cmd, 0)
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -89,6 +87,10 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case updateFlashMsg:
 		m.flashCount = msg.count
 		m.flashMsg = msg.msg
+		cmds = append(cmds, flashTick())
+	case error:
+		m.flashCount = 6
+		m.flashMsg = msg.Error()
 		cmds = append(cmds, flashTick())
 	case flashTickMsg:
 		if m.flashCount > 0 {
@@ -99,8 +101,8 @@ func (m app) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, flashTick())
 		}
 	}
-	
-	m.page_conatiner.update(msg);
+
+	m.page_conatiner.update(msg)
 	cmds = append(cmds, m.page_conatiner.commands...)
 	return m, tea.Batch(cmds...)
 }
@@ -109,4 +111,3 @@ func (m app) View() string {
 	m.page_conatiner.app = &m
 	return m.page_conatiner.page.View()
 }
-

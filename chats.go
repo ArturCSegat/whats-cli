@@ -1,26 +1,25 @@
 package main
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
-	"net/http"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	lua "github.com/yuin/gopher-lua"
 )
 
 type Chat struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	UnreadCount int    `json:"unreadCount"`
-	LastMessage message `json:"lastMessage"`
-	IsArchived  bool   `json:"isArchived"`
-	IsGroup     bool   `json:"isGroup"`
-	IsMuted     bool   `json:"isMuted"`
-	IsReadOnly  bool   `json:"isReadOnly"`
-	IsPinned    bool   `json:"isPinned"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	namePriority uint8
+	UnreadCount  int     `json:"unreadCount"`
+	LastMessage  message `json:"lastMessage"`
+	IsArchived   bool    `json:"isArchived"`
+	IsGroup      bool    `json:"isGroup"`
+	IsMuted      bool    `json:"isMuted"`
+	IsReadOnly   bool    `json:"isReadOnly"`
+	IsPinned     bool    `json:"isPinned"`
 }
 type chats_page struct {
 	chats        []Chat
@@ -84,8 +83,10 @@ func (cp *chats_page) registerLuaFuncs() {
 
 	L.SetGlobal("chat_select", L.NewFunction(func(L *lua.LState) int {
 		if cp.forwarding.isForwarding {
-			forwardMsgToChat(cp.chats[cp.selectedChat].ID, cp.forwarding.MsgID)
-			time.Sleep(2 * time.Second)
+			if err := forwardMsgToChat(cp.chats[cp.selectedChat].ID, cp.forwarding.MsgID); err != nil {
+				cp.container.commands = append(cp.container.commands, flash(updateFlashMsg{msg: "Forward: " + err.Error(), count: 6}))
+				return 0
+			}
 		}
 
 		cp.container.app.luaReturn = "go_messages"
@@ -154,7 +155,7 @@ func (cp chats_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		return cp, nil
 
-	case webhookMsg:
+	case whatsmeowEventMsg:
 		cp.container.app.flashMsg = "MSG FROM " + msg.Chat.Name
 		cp.container.app.flashCount = 6 // 3 flashes (on/off cycles)
 		cp.container.commands = append(cp.container.commands, tea.Batch(getChats(), flashTick()))
@@ -165,53 +166,75 @@ func (cp chats_page) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (cp chats_page) View() string {
-	var b strings.Builder
-	b.WriteString("Chats:\n\n")
-
-	if len(cp.chats) < 1 {
-		b.WriteString("Loading chats...")
-		return b.String()
+	chrome := struct {
+		Width         int `json:"width"`
+		Height        int `json:"height"`
+		ChatCount     int `json:"chat_count"`
+		SelectedIndex int `json:"selected_index"`
+	}{
+		Width:         cp.container.app.width,
+		Height:        cp.container.app.height,
+		ChatCount:     len(cp.chats),
+		SelectedIndex: cp.selectedChat + 1,
 	}
-	availableHeight := cp.container.app.height - 3 // 1 for header, 1 for empty line, 1 for padding
+
+	header := "Chats:\n"
+	if rendered, handled, err := renderLua(cp.container.app.luaState, "chat_header", chrome); err == nil && handled {
+		header = strings.TrimSuffix(rendered, "\n")
+	} else if err != nil {
+		header = "Lua chat header error: " + err.Error()
+	}
+	footer := ""
+	if rendered, handled, err := renderLua(cp.container.app.luaState, "chat_footer", chrome); err == nil && handled {
+		footer = strings.TrimSuffix(rendered, "\n")
+	} else if err != nil {
+		footer = "Lua chat footer error: " + err.Error()
+	}
+
+	availableHeight := cp.container.app.height - blockHeight(header) - blockHeight(footer)
 	if availableHeight < 1 {
 		availableHeight = 1
 	}
 
-	// Calculate which chats to show based on selection and available container.app.height
-	startIndex := 0
-	endIndex := len(cp.chats)
-
-	lines := make([]string, 0)
-	for i := startIndex; i < endIndex; i++ {
-		c := cp.chats[i]
-		name := c.Name
-		if name == "" {
-			name = c.ID
+	lines := make([]string, 0, len(cp.chats))
+	for i, chat := range cp.chats {
+		if chat.Name == "" {
+			chat.Name = chat.ID
 		}
-		str := cp.renderChat(c, i)
-		lines = append(lines, strings.Split(str, "\n")...)
+		rendered := cp.renderChat(chat, i)
+		lines = append(lines, strings.Split(strings.TrimSuffix(rendered, "\n"), "\n")...)
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "No synchronized chats")
 	}
 	cp.lines = lines
-	var displayLines []string
-	startIdx := cp.scrollOffset
-	endIdx := cp.scrollOffset + availableHeight
 
-	// Ensure we don't scroll past the end
-	if endIdx > len(cp.lines) {
-		endIdx = len(cp.lines)
+	startIdx := cp.scrollOffset
+	endIdx := startIdx + availableHeight
+	if endIdx > len(lines) {
+		endIdx = len(lines)
 		startIdx = max(0, endIdx-availableHeight)
 	}
-
-	// Ensure we don't scroll before the beginning
 	if startIdx < 0 {
 		startIdx = 0
 	}
-
-	if startIdx < len(cp.lines) {
-		displayLines = cp.lines[startIdx:endIdx]
+	var displayLines []string
+	if startIdx < len(lines) {
+		displayLines = lines[startIdx:endIdx]
 	}
+	for len(displayLines) < availableHeight {
+		displayLines = append(displayLines, "")
+	}
+
+	var b strings.Builder
+	b.WriteString(header)
+	b.WriteByte('\n')
 	for _, line := range displayLines {
-		b.WriteString(line + "\n")
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	if footer != "" {
+		b.WriteString(footer)
 	}
 	return b.String()
 }
@@ -220,6 +243,7 @@ func (cp *chats_page) renderChat(chat Chat, idx int) string {
 	L := cp.container.app.luaState
 	type chat_to_render_info struct {
 		Is_selected bool `json:"is_selected"`
+		Index       int  `json:"index"`
 		Width       int  `json:"width"`
 		Height      int  `json:"height"`
 	}
@@ -231,7 +255,7 @@ func (cp *chats_page) renderChat(chat Chat, idx int) string {
 
 	str, err := struct_to_lua_table(
 		chat_to_render{
-			chat_to_render_info{Is_selected: idx == cp.selectedChat, Width: cp.container.app.width, Height: cp.container.app.height},
+			chat_to_render_info{Is_selected: idx == cp.selectedChat, Index: idx + 1, Width: cp.container.app.width, Height: cp.container.app.height},
 			chat,
 		},
 	)
@@ -275,29 +299,15 @@ func (cp *chats_page) renderChat(chat Chat, idx int) string {
 	return fmt.Sprintf("  %s\n", styles["unselectedStyle"].Render(chat.Name))
 }
 
-func forwardMsgToChat(chatID string, msgID string) {
-	res, err := http.Post(fmt.Sprintf("%s/client/1/message/%s/forward/%s", baseURL, msgID, chatID), "application/json", nil)
-	if err != nil {
-		panic(fmt.Errorf("failed to forward message: %w", err))
-	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		panic(fmt.Errorf("failed to forward message: %s", res.Status))
-	}
+func forwardMsgToChat(chatID, messageID string) error {
+	return whatsApp.forwardMessage(context.Background(), chatID, messageID)
 }
 
 func getChats() tea.Cmd {
 	return func() tea.Msg {
-		res, err := http.Get(fmt.Sprintf("%s/client/1/chat", baseURL))
-		if err != nil {
-			return err
+		if whatsApp == nil {
+			return fmt.Errorf("WhatsApp client is not initialized")
 		}
-		defer res.Body.Close()
-		var chats []Chat
-		if err := json.NewDecoder(res.Body).Decode(&chats); err != nil {
-			return err
-		}
-
-		return chatsLoadedMsg(chats)
+		return chatsLoadedMsg(whatsApp.getChats())
 	}
 }
